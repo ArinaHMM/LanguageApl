@@ -65,6 +65,7 @@ app.post("/verify-code", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Email server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Email server running on http://0.0.0.0:${PORT}`);
 });
+
