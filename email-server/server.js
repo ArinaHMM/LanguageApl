@@ -14,8 +14,8 @@ const codes = {};
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: "mazitova.arincka@yandex.ru",
-    pass: "qqctxfeqnmvtqrhf",
+    user: "lerasemenova01697@gmail.com",
+    pass: "itmlodizonhhpsxl",
   },
 });
 
@@ -31,7 +31,7 @@ app.post("/send-code", async (req, res) => {
 
   try {
     await transporter.sendMail({
-      from: `"LingoQuest" <mazitova.arincka@yandex.ru>`,
+      from: `"LingoQuest" <lerasemenova01697@gmail.com>`,
       to: email,
       subject: "Код подтверждения",
       text: `Ваш код подтверждения: ${code}`,

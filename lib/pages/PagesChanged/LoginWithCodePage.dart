@@ -13,7 +13,7 @@ class _LoginWithCodePageState extends State<LoginWithCodePage> {
   bool _codeSent = false;
   String _message = '';
 
-  final String serverUrl = 'http://localhost:3000'; // Замени на адрес сервера
+  final String serverUrl = 'https://languageapl.onrender.com'; // Замени на адрес сервера
 
   Future<void> sendCode() async {
     final email = _emailController.text.trim();
