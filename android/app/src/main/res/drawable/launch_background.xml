@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"> <!-- Строка 2 -->
+    <!-- Фоновый цвет -->
+    <item android:drawable="@color/splash_background_color" /> <!-- Строка 4, самозакрывающийся -->
+
+    <!-- Твоя иконка по центру -->
+    <!-- Используй @mipmap/имя_файла_иконки_без_расширения -->
+    <item                                                        
+        android:width="650dp"
+        android:height="650dp"                               
+        android:gravity="center">                               
+        <bitmap                                                 
+            android:gravity="fill"
+            android:src="@mipmap/ic_launcher" />              <!-- Строка 13, самозакрывающийся -->
+    </item>                                                      <!-- Строка 14 - закрытие тега item, начатого на строке 7 -->
+</layer-list>                                                     <!-- Строка 15 -->

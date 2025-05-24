@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "343134865969",
+    "project_id": "languageapl",
+    "storage_bucket": "languageapl.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:343134865969:android:c9a7fa5b5026a1f10de310",
+        "android_client_info": {
+          "package_name": "com.example.flutter_language_apl_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:343134865969:android:6a3d07a714fcb87c0de310",
+        "android_client_info": {
+          "package_name": "com.example.flutter_languageapplicationmycourse_2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
