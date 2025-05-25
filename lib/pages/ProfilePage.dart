@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
+import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart'; // Убедитесь, что путь верный
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:toast/toast.dart';
+import 'package:toast/toast.dart'; // ToastContext().init(context) нужно будет вызвать в build
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -15,21 +15,24 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  int _selectedIndex = 4;
+  int _selectedIndex = 4; // Для BottomNavigationBar
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  late User currentUser;
-  late DocumentSnapshot<Map<String, dynamic>> userData;
-  File? _image;
+  User? currentUser; // Сделаем nullable для безопасности
+  DocumentSnapshot<Map<String, dynamic>>? userDataSnapshot; // Для хранения снепшота
+
+  File? _pickedImageFile;
   final ImagePicker _picker = ImagePicker();
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  bool _isUploadingImage = false;
 
   @override
   void initState() {
     super.initState();
-    currentUser = _auth.currentUser!;
+    currentUser = _auth.currentUser;
+    // ToastContext().init(context); // Перенесено в build метод, чтобы context был доступен
   }
 
   void _onItemTapped(int index) {
+    if (_selectedIndex == index) return; // Не переходить, если уже на этой вкладке
     setState(() {
       _selectedIndex = index;
     });
@@ -48,122 +51,187 @@ class _ProfilePageState extends State<ProfilePage> {
         Navigator.pushReplacementNamed(context, '/settings');
         break;
       case 4:
+        // Уже на странице профиля
         break;
     }
   }
 
-  Future<void> _editProfile(String field, String currentValue) async {
-    TextEditingController controller =
-        TextEditingController(text: currentValue);
+  // Получение данных пользователя из снепшота
+  Map<String, dynamic>? get _userData => userDataSnapshot?.data();
+
+  Future<void> _pickImage() async {
+    if (_isUploadingImage) return;
+    try {
+      final pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+      if (pickedFile != null) {
+        setState(() {
+          _pickedImageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      Toast.show("Ошибка выбора изображения: $e", duration: Toast.lengthLong);
+    }
+  }
+
+  Future<void> _uploadAndSaveImage() async {
+    if (_pickedImageFile == null || currentUser == null) return;
+
+    setState(() {
+      _isUploadingImage = true;
+    });
+
+    try {
+      String fileName = currentUser!.uid;
+      Reference ref = FirebaseStorage.instance.ref().child("profile_images/$fileName.jpg"); // Добавим расширение
+
+      UploadTask uploadTask = ref.putFile(_pickedImageFile!, SettableMetadata(contentType: 'image/jpeg'));
+      TaskSnapshot snapshot = await uploadTask;
+      String downloadUrl = await snapshot.ref.getDownloadURL();
+
+      await UsersCollection().updateUserCollection(currentUser!.uid, {'image': downloadUrl});
+
+      setState(() {
+        _pickedImageFile = null; // Сбрасываем выбранное изображение после успешной загрузки
+        // userDataSnapshot будет обновлен FutureBuilder'ом
+      });
+      Toast.show("Фото профиля обновлено!");
+    } catch (e) {
+      Toast.show("Ошибка загрузки фото: ${e.toString()}", duration: Toast.lengthLong);
+    } finally {
+      setState(() {
+        _isUploadingImage = false;
+      });
+    }
+  }
+
+  Future<void> _editProfileField(String fieldKey, String currentFieldValue) async {
+    TextEditingController controller = TextEditingController(text: currentFieldValue);
     String? newValue;
 
-    return showDialog<void>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Изменить $field'),
-          content: TextField(
-            controller: controller,
-            decoration: InputDecoration(hintText: 'Введите новое значение'),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Отмена'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              child: const Text('Сохранить'),
-              onPressed: () {
-                newValue = controller.text;
+    // Для даты рождения используем DatePicker
+    if (fieldKey == 'birthDate') {
+      DateTime initialDate;
+      try {
+        List<String> parts = currentFieldValue.split('/');
+        initialDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+      } catch (e) {
+        initialDate = DateTime.now();
+      }
 
-                if (newValue?.isNotEmpty == true) {
-                  _updateUserData(field, newValue!);
-                }
-
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _updateUserData(String field, String newValue) async {
-    if (field == 'firstName') {
-      await UsersCollection().editUserCollection(
-        currentUser.uid,
-        newValue,
-        userData.data()!['lastName'],
-        birthDate: userData.data()!['birthDate'],
-        email: userData.data()!['email'],
-        image: userData.data()!['image'],
-        language: userData.data()!['language'],
+      final DateTime? pickedDate = await showDatePicker(
+        context: context,
+        initialDate: initialDate,
+        firstDate: DateTime(1900),
+        lastDate: DateTime.now(),
       );
-    } else if (field == 'lastName') {
-      await UsersCollection().editUserCollection(
-        currentUser.uid,
-        userData.data()!['firstName'],
-        newValue,
-        birthDate: userData.data()!['birthDate'],
-        email: userData.data()!['email'],
-        image: userData.data()!['image'],
-        language: userData.data()!['language'],
-      );
-    } else if (field == 'birthDate') {
-      await UsersCollection().editUserCollection(
-        currentUser.uid,
-        userData.data()!['firstName'],
-        userData.data()!['lastName'],
-        birthDate: newValue,
-        email: userData.data()!['email'],
-        image: userData.data()!['image'],
-        language: userData.data()!['language'],
+      if (pickedDate != null) {
+        newValue = "${pickedDate.day}/${pickedDate.month}/${pickedDate.year}";
+      } else {
+        return; // Пользователь отменил выбор даты
+      }
+    } else {
+      // Для текстовых полей
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          return AlertDialog(
+            title: Text('Изменить ${fieldKey == "firstName" ? "Имя" : "Фамилию"}'), // Пример
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(hintText: 'Введите новое значение'),
+            ),
+            actions: <Widget>[
+              TextButton(
+                child: const Text('Отмена'),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+              TextButton(
+                child: const Text('Сохранить'),
+                onPressed: () {
+                  if (controller.text.trim().isNotEmpty) {
+                    newValue = controller.text.trim();
+                  }
+                  Navigator.of(dialogContext).pop();
+                },
+              ),
+            ],
+          );
+        },
       );
     }
-
-    setState(() {});
+    
+    if (newValue != null && newValue != currentFieldValue) {
+      try {
+        // Валидация для имени и фамилии (только буквы)
+        if ((fieldKey == 'firstName' || fieldKey == 'lastName') && !RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$').hasMatch(newValue!)) {
+          Toast.show('${fieldKey == "firstName" ? "Имя" : "Фамилия"} может содержать только буквы и пробелы.');
+          return;
+        }
+        await UsersCollection().updateUserCollection(currentUser!.uid, {fieldKey: newValue});
+        Toast.show("${fieldKey == "firstName" ? "Имя" : fieldKey == "lastName" ? "Фамилия" : "Дата рождения"} обновлен(а)!");
+        // FutureBuilder обновит UI
+      } catch (e) {
+        Toast.show("Ошибка обновления данных: $e", duration: Toast.lengthLong);
+      }
+    }
   }
 
+
   Future<void> _changePassword() async {
-    TextEditingController controller = TextEditingController();
-    return showDialog<void>(
+    TextEditingController passwordController = TextEditingController();
+    if (currentUser == null) return;
+
+    await showDialog<void>(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Сменить пароль'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: controller,
-                decoration:
-                    const InputDecoration(hintText: 'Введите новый пароль'),
+                controller: passwordController,
+                decoration: const InputDecoration(hintText: 'Введите новый пароль'),
                 obscureText: true,
+                autofocus: true,
               ),
               const SizedBox(height: 10),
-              const Text('Вы уверены, что хотите изменить пароль?'),
+              const Text('Пароль должен содержать минимум 6 символов.', style: TextStyle(fontSize: 12)),
             ],
           ),
           actions: <Widget>[
             TextButton(
               child: const Text('Отмена'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              onPressed: () => Navigator.of(dialogContext).pop(),
             ),
             TextButton(
               child: const Text('Изменить'),
               onPressed: () async {
-                String newPassword = controller.text;
-                if (newPassword.isNotEmpty) {
-                  await _auth.currentUser!.updatePassword(newPassword);
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Пароль успешно изменен')),
-                  );
+                String newPassword = passwordController.text;
+                if (newPassword.isNotEmpty && newPassword.length >= 6) {
+                  try {
+                    await currentUser!.updatePassword(newPassword);
+                    Navigator.of(dialogContext).pop(); // Закрыть диалог
+                    Toast.show('Пароль успешно изменен. Пожалуйста, войдите снова с новым паролем.');
+                    await _auth.signOut(); // Разлогинить пользователя
+                    Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false); // Переход на страницу входа
+                  } on FirebaseAuthException catch (e) {
+                     Navigator.of(dialogContext).pop(); // Закрыть диалог при ошибке
+                    String message = "Ошибка смены пароля.";
+                    if (e.code == 'weak-password') {
+                      message = 'Новый пароль слишком простой.';
+                    } else if (e.code == 'requires-recent-login') {
+                      message = 'Эта операция требует недавнего входа. Пожалуйста, войдите снова и попробуйте еще раз.';
+                      // Здесь можно инициировать процесс re-authentication
+                    }
+                    Toast.show(message, duration: Toast.lengthLong);
+                  } catch (e) {
+                    Navigator.of(dialogContext).pop();
+                    Toast.show('Неизвестная ошибка при смене пароля.', duration: Toast.lengthLong);
+                  }
+                } else {
+                  Toast.show('Пароль не может быть пустым и должен содержать минимум 6 символов.');
                 }
               },
             ),
@@ -172,214 +240,260 @@ class _ProfilePageState extends State<ProfilePage> {
       },
     );
   }
+  
+  Widget _buildProfileImage(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final avatarRadius = screenWidth * 0.18;
+    ImageProvider<Object> profileImageProvider;
 
-  Future<void> _pickImage() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-
-    if (pickedFile != null) {
-      setState(() {
-        _image = File(pickedFile.path);
-      });
+    if (_pickedImageFile != null) {
+      profileImageProvider = FileImage(_pickedImageFile!);
+    } else {
+      final imageUrl = _userData?['image'] as String?;
+      if (imageUrl != null && imageUrl.isNotEmpty && imageUrl.startsWith('http')) {
+        profileImageProvider = NetworkImage(imageUrl);
+      } else {
+        profileImageProvider = const AssetImage('images/default_avatar.png'); // Убедитесь, что этот файл есть в assets
+      }
     }
-  }
 
-  Future<void> _uploadImage(String? downloadUrl) async {
-    try {
-      await UsersCollection().editUserCollection(
-        currentUser.uid,
-        userData.data()!['firstName'],
-        userData.data()!['lastName'],
-        birthDate: userData.data()!['birthDate'],
-        email: userData.data()!['email'],
-        image: downloadUrl,
-        language: userData.data()!['language'],
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка загрузки: ${e.toString()}')),
-      );
-    }
-  }
-
-  Future<void> _handleUpload() async {
-    if (_image == null) return;
-
-    try {
-      String fileName = currentUser.uid;
-      Reference ref = _storage.ref().child("profile_images/$fileName");
-
-      await ref.putFile(_image!);
-      String downloadUrl = await ref.getDownloadURL();
-
-      await _uploadImage(downloadUrl);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка загрузки: ${e.toString()}')),
-      );
-    }
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        CircleAvatar(
+          radius: avatarRadius,
+          backgroundImage: profileImageProvider,
+          backgroundColor: Colors.grey[200], // Фон, если изображение не загрузилось
+        ),
+        Positioned(
+          bottom: 0,
+          right: 0,
+          child: Material(
+            color: Colors.green,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              onTap: _pickImage,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.camera_alt, color: Colors.white, size: screenWidth * 0.05),
+              ),
+            ),
+          ),
+        ),
+        if (_isUploadingImage)
+          Container(
+            width: avatarRadius * 2,
+            height: avatarRadius * 2,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Center(child: CircularProgressIndicator(color: Colors.white)),
+          ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: UsersCollection().getUser(currentUser.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text("Ошибка: ${snapshot.error}"));
-        }
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const Center(child: Text("Пользователь не найден"));
-        }
+    ToastContext().init(context); // Инициализация Toast
+    final screenHeight = MediaQuery.of(context).size.height;
 
-        userData = snapshot.data!;
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text("Профиль"),
-            automaticallyImplyLeading: false,
-            backgroundColor: Colors.green[700],
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.logout),
-                onPressed: () async {
-                  await FirebaseAuth.instance.signOut();
-                  Navigator.pushReplacementNamed(context, '/auth');
-                },
-              ),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Профиль"),
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.green[700],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: "Выйти",
+            onPressed: () async {
+              await _auth.signOut();
+              Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false);
+            },
           ),
-          body: Padding(
+        ],
+      ),
+      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: UsersCollection().getUser(currentUser?.uid ?? 'fallback_uid'), // Используем fallback, если currentUser null
+        builder: (context, snapshot) {
+          if (currentUser == null) { // Если пользователь не аутентифицирован
+             WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false);
+            });
+            return const Center(child: Text("Пользователь не аутентифицирован."));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text("Ошибка загрузки данных: ${snapshot.error}"));
+          }
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(child: Text("Данные пользователя не найдены."));
+          }
+
+          userDataSnapshot = snapshot.data; // Сохраняем снепшот
+
+          return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: GestureDetector(
-                    onTap: _pickImage,
-                    child: CircleAvatar(
-                      radius: 50,
-                      backgroundImage: _image == null
-                          ? NetworkImage(userData.data()!['image'])
-                          : FileImage(_image!) as ImageProvider,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            child: Center(
+              child: ConstrainedBox( // Ограничиваем максимальную ширину контента на больших экранах
+                constraints: BoxConstraints(maxWidth: 600),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const Spacer(flex: 2),
-                    ElevatedButton(
-                      onPressed: _handleUpload,
-                      style: ElevatedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: Colors.green, // Цвет текста
+                    _buildProfileImage(context),
+                    SizedBox(height: screenHeight * 0.02),
+                    if (_pickedImageFile != null && !_isUploadingImage)
+                      ElevatedButton.icon(
+                        icon: Icon(Icons.save),
+                        label: const Text('Сохранить фото'),
+                        onPressed: _uploadAndSaveImage,
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                       ),
-                      child: const Text('Загрузить новое изображение'),
+                    if (_pickedImageFile != null && !_isUploadingImage) SizedBox(height: screenHeight * 0.02),
+                    
+                    Text(
+                      "${_userData?['firstName'] ?? 'Имя'} ${_userData?['lastName'] ?? 'Фамилия'}",
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
                     ),
-                    const Spacer(flex: 1),
+                    SizedBox(height: screenHeight * 0.005),
+                    Text(
+                      _userData?['email'] ?? 'email@example.com',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey[700]),
+                      textAlign: TextAlign.center,
+                    ),
+                    SizedBox(height: screenHeight * 0.03),
+
+                    _EditableInfoCard(
+                      title: "Имя",
+                      value: _userData?['firstName'] ?? '',
+                      icon: Icons.person_outline,
+                      onEdit: () => _editProfileField('firstName', _userData?['firstName'] ?? ''),
+                    ),
+                    _EditableInfoCard(
+                      title: "Фамилия",
+                      value: _userData?['lastName'] ?? '',
+                      icon: Icons.person_search_outlined,
+                      onEdit: () => _editProfileField('lastName', _userData?['lastName'] ?? ''),
+                    ),
+                     _EditableInfoCard(
+                      title: "Дата рождения",
+                      value: _userData?['birthDate'] ?? '',
+                      icon: Icons.calendar_today_outlined,
+                      onEdit: () => _editProfileField('birthDate', _userData?['birthDate'] ?? ''),
+                    ),
+                    _InfoCard(
+                      title: "Уровень языка",
+                      value: _userData?['languageLevel'] ?? 'Не указан', // Предполагаем, что поле называется languageLevel
+                      icon: Icons.translate_outlined,
+                    ),
+                    
+                    SizedBox(height: screenHeight * 0.03),
+                    SizedBox(
+                      width: double.infinity, // Растянуть на всю доступную ширину (внутри ConstrainedBox)
+                      child: ElevatedButton.icon(
+                        icon: Icon(Icons.lock_outline),
+                        label: const Text('Сменить пароль'),
+                        onPressed: _changePassword,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange[700],
+                          padding: EdgeInsets.symmetric(vertical: screenHeight * 0.018),
+                          textStyle: TextStyle(fontSize: screenHeight * 0.018)
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                GestureDetector(
-                  onTap: () =>
-                      _editProfile('firstName', userData.data()!['firstName']),
-                  child: Text(
-                    "${userData.data()!['firstName']} ${userData.data()!['lastName']}",
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: () => _editProfile('email', userData.data()!['email']),
-                  child: Text(
-                    userData.data()!['email'],
-                    style: const TextStyle(fontSize: 16, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const Divider(height: 40),
-                GestureDetector(
-                  onTap: () =>
-                      _editProfile('birthDate', userData.data()!['birthDate']),
-                  child: _buildUserInfoTile(Icons.calendar_today,
-                      'Дата рождения', userData.data()!['birthDate']),
-                ),
-                GestureDetector(
-                  onTap: () =>
-                      _editProfile('lastName', userData.data()!['lastName']),
-                  child: _buildUserInfoTile(
-                      Icons.person, 'Фамилия', userData.data()!['lastName']),
-                ),
-                _buildUserInfoTile(Icons.bookmark_added_outlined,
-                    'Уровень владения', userData.data()!['language']),
-                const SizedBox(height: 20),
-                Center(
-                  child: ElevatedButton(
-                    onPressed: _changePassword,
-                    style: ElevatedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: Colors.green,
-                    ),
-                    child: const Text('Сменить пароль'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          bottomNavigationBar: _buildBottomNavigationBar(),
-        );
-      },
-    );
-  }
-
-  ListTile _buildUserInfoTile(IconData icon, String title, String subtitle) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.green),
-      title: Text(title, style: const TextStyle(color: Colors.green)),
-      subtitle: Text(subtitle, style: const TextStyle(color: Colors.black87)),
-      tileColor: Colors.green[50],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
+          );
+        },
       ),
-      contentPadding: const EdgeInsets.all(10),
+      bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
   BottomNavigationBar _buildBottomNavigationBar() {
     return BottomNavigationBar(
+      type: BottomNavigationBarType.fixed, // Чтобы все метки были видны
       items: const <BottomNavigationBarItem>[
-        BottomNavigationBarItem(
-          icon: Icon(Icons.school),
-          label: 'Учиться',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.gamepad),
-          label: 'Играть',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.notifications),
-          label: 'Уведомления',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.settings),
-          label: 'Настройки',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person),
-          label: 'Профиль',
-        ),
+        BottomNavigationBarItem(icon: Icon(Icons.school), label: 'Учиться'),
+        BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: 'Играть'),
+        BottomNavigationBarItem(icon: Icon(Icons.notifications), label: 'Уведомления'),
+        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Настройки'),
+        BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Профиль'),
       ],
       currentIndex: _selectedIndex,
       selectedItemColor: Colors.green[700],
+      unselectedItemColor: Colors.grey[600],
       onTap: _onItemTapped,
+    );
+  }
+}
+
+// Вспомогательные виджеты для карточек информации
+class _InfoCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _InfoCard({
+    Key? key,
+    required this.title,
+    required this.value,
+    required this.icon,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Icon(icon, color: Colors.green[600]),
+        title: Text(title, style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey[700])),
+        subtitle: Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.black87)),
+      ),
+    );
+  }
+}
+
+class _EditableInfoCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final VoidCallback onEdit;
+
+  const _EditableInfoCard({
+    Key? key,
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.onEdit,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Icon(icon, color: Colors.green[600]),
+        title: Text(title, style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey[700])),
+        subtitle: Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.black87)),
+        trailing: IconButton(
+          icon: Icon(Icons.edit_outlined, color: Colors.blueGrey[400]),
+          tooltip: "Редактировать",
+          onPressed: onEdit,
+        ),
+      ),
     );
   }
 }

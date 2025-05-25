@@ -36,7 +36,7 @@ import 'package:flutter_languageapplicationmycourse_2/pages/newPages/WelcomePage
 
 final routes = {
   // '/auth': (context) => const AuthPage(),
-  '/auth': (context) => LoginWithCodePage(),
+  '/auth': (context) => AuthPage(),
   '/reg': (context) => const RegistrationPage(),
   '/profile': (context) => const ProfilePage(),
   '/chat1': (context) => const ChatsPage1(),

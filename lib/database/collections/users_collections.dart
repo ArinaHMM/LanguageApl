@@ -56,6 +56,16 @@ class UsersCollection {
             notificationsEnabled, // Обновляем поле уведомлений
     });
   }
+  // В классе UsersCollection
+Future<void> updateUserCollection(String id, Map<String, dynamic> data) async {
+  try {
+    // Используем _firebaseFirestore для доступа к коллекции 'users'
+    await _firebaseFirestore.collection("users").doc(id).update(data);
+  } catch (e) {
+    print("Ошибка обновления данных пользователя (в UsersCollection): $e");
+    rethrow;
+  }
+}
 
   Future<DocumentSnapshot<Map<String, dynamic>>> getUser(String id) async {
     return await _firebaseFirestore.collection('users').doc(id).get();

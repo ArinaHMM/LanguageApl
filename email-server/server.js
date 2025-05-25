@@ -34,7 +34,7 @@ app.post("/send-code", async (req, res) => {
       from: `"LingoQuest" <lerasemenova01697@gmail.com>`,
       to: email,
       subject: "Код подтверждения",
-      text: `Ваш код подтверждения: ${code}`,
+      text: `Вас приветствует LingoQuest! Пожалуйста, не отвечайте на это сообщение. Если вы нигде не регистрировались, то просто проигнорируйте это сообщение. Ваш код подтверждения: ${code}`,
     });
     res.json({ success: true, message: "Код отправлен на почту" });
   } catch (error) {
