@@ -1,2088 +1,1009 @@
+// lib/pages/LearnPage.dart
+
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/AdvancedPage/AdvancedLessonPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/AudioPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/AudiosPage/LessonAudioPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/AddLesson/LessonPage1.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/UpperIntermediateLesson/UpIntermediarePage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/UpperUpInterPage/UpperUpPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/Video/VideoPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/api_service.dart';
-import 'package:flutter_languageapplicationmycourse_2/pages/UpperLesson/UpperLessonViewPage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// Ваши адаптированные классы для работы с Firestore
+import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart'; // Убедитесь, что методы обновлены
+import 'package:flutter_languageapplicationmycourse_2/database/collections/lessons_collections.dart'; // Убедитесь, что методы обновлены
+
+// Модели данных (предполагается, что они адаптированы)
+import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/lesson_model.dart';
+
+// Страница урока (должна уметь обрабатывать разные типы уроков)
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/lesson_player_page.dart';
+
+
+// Виджеты
+import 'package:flutter_languageapplicationmycourse_2/widget/language_selector_widget.dart'; // Если он у вас есть и адаптирован
+
+// Пакеты
+import 'package:toast/toast.dart';
+
+// ВАЖНО: Импорты ВАШИХ старых страниц уроков (LessonPage1 и т.д.) здесь НЕ НУЖНЫ,
+// так как вся логика перехода должна вести на универсальный LessonPlayerPage или аналогичный.
 
 class LearnPage extends StatefulWidget {
+  const LearnPage({Key? key}) : super(key: key);
+
   @override
-  // ignore: library_private_types_in_public_api
   _LearnPageState createState() => _LearnPageState();
 }
 
-class _LearnPageState extends State<LearnPage> {
-  int _selectedIndex = 0; // Index for bottom navigation bar
-  String userLanguageLevel = ''; // User's language level
-  int lives = 0; // User's lives
-  Timer? _timer; // Timer for countdown
-  int _remainingTime = 0; // Remaining time in seconds
-  // ignore: unused_field
-  String _timeString = "00:00"; // Display format for time
-  int userProgress = 0;
-  bool isAdmin = false; // Check if the user is admin
-  // Using ValueNotifier to track the timer's state independently
-  final ValueNotifier<int> _remainingTimeNotifier = ValueNotifier<int>(0);
+class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
+  final UsersCollection _usersCollection = UsersCollection();
+  final LessonsCollection _lessonsCollection = LessonsCollection(); // Ваш класс для получения уроков
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  UserModel? _currentUserData;
+  String _currentLearningLanguage = 'english'; // Язык по умолчанию
+  List<Lesson> _allLessonsForCurrentLanguage = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  int _lives = 5; // Начальное значение по умолчанию
+  Timer? _lifeRestoreTimer;
+  final ValueNotifier<int> _remainingTimeForLifeNotifier = ValueNotifier<int>(0);
+  bool _isAdmin = false;
+
+  // Порядок и стили уровней
+  final List<String> _levelOrder = ['Beginner', 'Elementary', 'Intermediate', 'Upper Intermediate', 'Advanced'];
+  final Map<String, Color> _levelColors = {
+    'Beginner': Colors.lightBlue[400]!,
+    'Elementary': Colors.green[500]!,
+    'Intermediate': Colors.orange[600]!,
+    'Upper Intermediate': Colors.purple[500]!,
+    'Advanced': Colors.red[600]!,
+    'Прочее': Colors.grey[600]!, // Для уроков без четкого уровня или кастомных
+  };
+   final Map<String, IconData> _levelIcons = { // Иконки для каждого уровня
+    'Beginner': Icons.child_friendly_outlined,
+    'Elementary': Icons.school_outlined,
+    'Intermediate': Icons.auto_stories_outlined,
+    'Upper Intermediate': Icons.menu_book_sharp,
+    'Advanced': Icons.workspace_premium_outlined,
+    'Прочее': Icons.category_outlined,
+  };
+
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+
+  int _bottomNavSelectedIndex = 0; // Для BottomNavigationBar
 
   @override
   void initState() {
     super.initState();
-    _fetchUserProgress();
-    _getUserLanguageLevel();
-    _fetchLastRestoredTime();
-    _checkIfAdmin();
-    // Fetch last restored time when page loads
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 600), // Увеличено для более плавной анимации
+      vsync: this,
+    );
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
+    _initializePage();
   }
 
-  Future<void> _checkIfAdmin() async {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
-
-    if (currentUser != null && currentUser.email == 'admin@mail.ru') {
-      setState(() {
-        isAdmin = true; // Mark user as admin
-      });
+  Future<void> _initializePage({bool isLanguageChange = false}) async {
+    if (!mounted) return;
+    if (!isLanguageChange) { // Полная перезагрузка только если это не смена языка
+      setState(() { _isLoading = true; _errorMessage = null; });
     }
-  }
+    _fadeController.reset(); // Сбрасываем анимацию
 
-  Future<void> _deleteaddLesson(String lessonId) async {
+    final User? firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) {
+      _handleUnauthenticatedUser();
+      return;
+    }
+
     try {
-      await FirebaseFirestore.instance
-          .collection('addlessons')
-          .doc(lessonId)
-          .delete();
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Урок удалён')),
-      );
+      // 1. Получаем данные пользователя
+      UserModel? userData = await _usersCollection.getUserModel(firebaseUser.uid);
+      if (!mounted) return;
+
+      if (userData == null || userData.languageSettings == null || userData.languageSettings!.learningProgress.isEmpty) {
+        // Если нет настроек языка (например, новый пользователь, который пропустил выбор)
+        _handleMissingLanguageSettings();
+        return;
+      }
+      
+      _currentUserData = userData;
+      // Устанавливаем текущий язык обучения из данных пользователя
+      _currentLearningLanguage = _currentUserData!.languageSettings!.currentLearningLanguage;
+      _lives = _currentUserData!.lives;
+      _isAdmin = _currentUserData!.email == 'admin@mail.ru'; // Проверка на админа
+
+      // 2. Инициализируем таймер жизней
+      _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
+
+      // 3. Загружаем уроки для текущего языка
+      await _fetchLessonsForCurrentLanguage();
+      
+      if (mounted) {
+         _fadeController.forward(); // Запускаем анимацию появления контента
+      }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка при удалении урока: $e')),
-      );
-    }
-    setState(() {});
-  }
-
-  Future<void> _deleteaudioLesson(String lessonId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('addlessons')
-          .doc(lessonId)
-          .delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Урок удалён')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка при удалении урока: $e')),
-      );
-    }
-    setState(() {});
-  }
-
-  Future<void> _deletevideoLesson(String lessonId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('videolessons')
-          .doc(lessonId)
-          .delete();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Урок удалён')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка при удалении урока: $e')),
-      );
-    }
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel(); // Cancel timer to prevent memory leaks
-    _remainingTimeNotifier.dispose(); // Dispose the ValueNotifier
-    super.dispose();
-  }
-
-  Future<void> _fetchUserProgress() async {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
-
-    if (currentUser != null) {
-      final String id = currentUser.uid;
-
-      // Получаем данные пользователя из Firestore
-      DocumentSnapshot userSnapshot =
-          await FirebaseFirestore.instance.collection('users').doc(id).get();
-
-      if (userSnapshot.exists) {
-        final dynamic userProgressData = userSnapshot['progress'];
-
-        // Проверяем, является ли прогресс картой, числом или списком
-        if (userProgressData is Map<String, dynamic>) {
-          // Если это карта, вы можете обрабатывать прогресс по урокам
-          // Например, здесь сохраняем количество уроков или другие метрики
-          // Если у вас есть конкретный ключ, который вы хотите получить:
-          userProgress = userProgressData['someKey'] ??
-              0; // Измените 'someKey' на ваш ключ
-
-          // Если вы хотите хранить весь прогресс как карту
-          // userProgressMap = userProgressData; // Если у вас есть отдельная переменная для карты прогресса
-        } else if (userProgressData is int) {
-          // Если это просто число
-          setState(() {
-            userProgress = userProgressData;
-          });
-        } else if (userProgressData is List<dynamic>) {
-          // Если это список, вы можете обработать его как нужно
-          setState(() {
-            userProgress = userProgressData
-                .length; // Например, устанавливаем прогресс как длину списка
-          });
-        } else {
-          // В случае, если данных нет или тип другой
-          setState(() {
-            userProgress = 0; // Установите значение по умолчанию
-          });
-        }
+      print("Error initializing LearnPage: $e");
+      if (mounted) {
+        setState(() { _errorMessage = "Ошибка загрузки данных. Попробуйте позже."; });
+      }
+    } finally {
+      if (mounted && !isLanguageChange) {
+        setState(() { _isLoading = false; });
       }
     }
   }
 
-  Future<void> _fetchLastRestoredTime() async {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+  void _handleUnauthenticatedUser() {
+     if (!mounted) return;
+    // Если пользователь не аутентифицирован, перенаправляем на страницу входа
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false);
+    });
+  }
 
-    if (currentUser != null) {
-      final String id = currentUser.uid;
+  void _handleMissingLanguageSettings() {
+    if (!mounted) return;
+    // Если у пользователя нет настроек языка, перенаправляем на страницу выбора языка
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/selectLanguage', (route) => false);
+    });
+  }
+  
+  Future<void> _fetchLessonsForCurrentLanguage() async {
+    if (_currentUserData == null || !mounted) return;
+    // Очищаем предыдущие уроки перед загрузкой новых (для корректной смены языка)
+    if (mounted) setState(() { _allLessonsForCurrentLanguage = []; });
 
-      // Получить данные пользователя из Firestore
-      DocumentSnapshot userSnapshot =
-          await FirebaseFirestore.instance.collection('users').doc(id).get();
-
-      if (userSnapshot.exists) {
-        lives =
-            userSnapshot['lives'] ?? 0; // Получить текущее количество жизней
-        Timestamp lastRestored =
-            userSnapshot['lastRestored'] ?? Timestamp.now();
-        DateTime nextRestoreTime = lastRestored
-            .toDate()
-            .add(const Duration(seconds: 10)); // Изменяем время на 10 секунд
-        _remainingTime = nextRestoreTime.difference(DateTime.now()).inSeconds;
-
-        // Предотвратить отрицательное значение для _remainingTime
-        if (_remainingTime < 0) {
-          _remainingTime = 0;
-        }
-
-        // Обновить ValueNotifier, чтобы отразить оставшееся время
-        _remainingTimeNotifier.value = _remainingTime;
-
-        // Обновить отображение времени
-        _timeString = _formatTime(_remainingTime);
-
-        if (_remainingTime > 0 && lives < 5) {
-          // Условие изменено на lives < 5
-          // Запускаем таймер для восстановления жизней, если осталось время и жизней меньше 5
-          _startTimer();
-        }
+    try {
+      List<Lesson> fetchedLessons = [];
+      // Список коллекций, из которых нужно загружать уроки
+      final lessonCollectionsToFetch = [
+        // 'lessons', // Ваша старая коллекция, если она есть и содержит уроки
+        'interactiveLessons', // Новая коллекция из админки
+        'addlessons',
+        'upperlessons', // Убедитесь, что для этих коллекций в Firestore у уроков есть поля targetLanguage и requiredLevel
+        'audiolessons',
+        'videolessons',
+        'advancedlessons',
+        'upperinterlessons',
+        'upperupinterlessons'
+        // Добавьте другие ваши коллекции уроков сюда
+      ];
+      
+      for (String collectionName in lessonCollectionsToFetch) {
+        // Предполагаем, что getLessonsFromCollection фильтрует по targetLanguage
+        fetchedLessons.addAll(await _lessonsCollection.getLessons(collectionName, _currentLearningLanguage));
       }
+      
+      // Опционально: Сортировка уроков, например, по orderIndex, если он есть
+      // fetchedLessons.sort((a, b) => (a.orderIndex ?? 0).compareTo(b.orderIndex ?? 0));
+
+      if (mounted) {
+        setState(() { _allLessonsForCurrentLanguage = fetchedLessons; });
+      }
+    } catch (e) {
+      print("Error fetching lessons for $_currentLearningLanguage: $e");
+      if (mounted) setState(() { _errorMessage = "Ошибка загрузки уроков."; });
     }
   }
 
-  void _startTimer() {
-    // Отменяем любой существующий таймер, чтобы предотвратить множественные таймеры
-    _timer?.cancel();
+  // --- Логика жизней (оставляем как есть, если она работала) ---
+  void _initializeLifeTimer(int currentLives, Timestamp lastRestored) {
+    _lifeRestoreTimer?.cancel();
+    if (!mounted) return;
 
-    // Запускаем таймер только если жизней меньше 5
-    if (lives < 5) {
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        // Обновляем оставшееся время, используя ValueNotifier
-        if (_remainingTimeNotifier.value > 0) {
-          _remainingTimeNotifier.value--;
-        } else {
-          _timer?.cancel(); // Останавливаем таймер, когда время истекло
-          _restoreLife(); // Восстанавливаем жизнь, когда время истекло
+    DateTime lastRestoredTime = lastRestored.toDate();
+    // Убедитесь, что у вас есть константа или переменная для интервала восстановления
+    const Duration lifeRestoreInterval = Duration(minutes: 5); // Например, 5 минут
+
+    if (currentLives < 5) {
+      DateTime nextRestoreTime = lastRestoredTime.add(lifeRestoreInterval);
+      int secondsToNextRestore = nextRestoreTime.difference(DateTime.now()).inSeconds;
+
+      if (secondsToNextRestore <= 0) {
+        // Если время уже прошло, пытаемся восстановить жизни на основе прошедшего времени
+        _handleInstantRestore();
+      } else {
+        _remainingTimeForLifeNotifier.value = secondsToNextRestore;
+        _lifeRestoreTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) { timer.cancel(); return; } // Проверка, что виджет еще существует
+          if (_remainingTimeForLifeNotifier.value > 0) {
+            _remainingTimeForLifeNotifier.value--;
+          } else {
+            timer.cancel();
+            _restoreLife();
+          }
+        });
+      }
+    } else {
+       _remainingTimeForLifeNotifier.value = 0; // Если жизней полно, таймер не нужен
+    }
+  }
+  
+  Future<void> _handleInstantRestore() async {
+    if (_currentUserData == null || !mounted) return;
+
+    DateTime lastRestoredTime = _currentUserData!.lastRestored.toDate();
+    const Duration lifeRestoreInterval = Duration(minutes: 5); // Должно совпадать с _initializeLifeTimer
+    int totalMinutesPassed = DateTime.now().difference(lastRestoredTime).inMinutes;
+    int livesToPotentiallyRestore = totalMinutesPassed ~/ lifeRestoreInterval.inMinutes;
+
+    if (livesToPotentiallyRestore > 0 && _currentUserData!.lives < 5) {
+      int currentLivesInDb = _currentUserData!.lives;
+      int newLives = (currentLivesInDb + livesToPotentiallyRestore).clamp(0, 5);
+      
+      if (newLives > currentLivesInDb) {
+        // Обновляем lastRestored только на то количество интервалов, сколько жизней было реально восстановлено
+        // Это важно, чтобы не "терять" время, если восстановлено меньше, чем могло бы быть
+        Timestamp newLastRestoredTimestamp = Timestamp.fromDate(
+            lastRestoredTime.add(lifeRestoreInterval * (newLives - currentLivesInDb))
+        );
+        // Если все 5 жизней восстановлены, то lastRestored можно поставить текущее время,
+        // чтобы следующий отсчет начался с нуля, когда жизнь потратится.
+        if (newLives == 5) {
+            newLastRestoredTimestamp = Timestamp.now();
         }
-      });
+
+        await _usersCollection.updateUserCollection(_currentUserData!.uid, {
+          'lives': newLives,
+          'lastRestored': newLastRestoredTimestamp, 
+        });
+        if(mounted) {
+          setState(() {
+            _lives = newLives;
+            // Обновляем локальный _currentUserData, чтобы он был консистентен
+            _currentUserData = _currentUserData!.copyWith(lives: newLives, lastRestored: newLastRestoredTimestamp);
+          });
+        }
+        _initializeLifeTimer(newLives, newLastRestoredTimestamp); // Перезапускаем таймер с новым временем
+      } else {
+         // Если расчетное количество жизней не увеличивает текущее, просто перезапускаем таймер
+         _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
+      }
+    } else {
+       _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
     }
   }
 
   Future<void> _restoreLife() async {
-    setState(() {});
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+    if (_currentUserData == null || _lives >= 5 || !mounted) return;
 
-    if (currentUser != null) {
-      final String id = currentUser.uid;
+    int newLives = _lives + 1;
+    Timestamp newLastRestored = Timestamp.now(); // Время фактического восстановления
 
-      if (lives < 5) {
-        lives++; // Увеличиваем количество жизней
-        await FirebaseFirestore.instance.collection('users').doc(id).update({
-          'lives': lives, // Обновляем жизни в Firestore
-          'lastRestored':
-              Timestamp.now(), // Обновляем время последнего восстановления
-        });
+    await _usersCollection.updateUserCollection(_currentUserData!.uid, {
+      'lives': newLives,
+      'lastRestored': newLastRestored,
+    });
 
-        // Сбрасываем оставшееся время на 10 секунд для следующей жизни
-        _remainingTime = 10; // Устанавливаем 10 секунд
-        _remainingTimeNotifier.value =
-            _remainingTime; // Обновляем ValueNotifier
-        _timeString =
-            _formatTime(_remainingTime); // Обновляем отображаемое время
-
-        // Запускаем таймер для следующей жизни, если жизней меньше 5
-        _startTimer();
-      } else {
-        // Если жизней уже 5, останавливаем таймер
-        _timer?.cancel();
-      }
+    if (mounted) {
+      setState(() {
+        _lives = newLives;
+        _currentUserData = _currentUserData!.copyWith(lives: newLives, lastRestored: newLastRestored);
+      });
+      _initializeLifeTimer(newLives, newLastRestored); // Перезапуск таймера
     }
-  }
-
-  String _formatTime(int seconds) {
-    int minutes = (seconds ~/ 60);
-    seconds = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   Future<bool> _deductLife() async {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
-
-    if (currentUser != null) {
-      final String id = currentUser.uid;
-
-      if (lives > 0) {
-        // Ensure lives count does not go negative
-        lives--; // Decrease local lives count
-        await FirebaseFirestore.instance.collection('users').doc(id).update({
-          'lives': lives, // Update lives in Firestore
-          'lastRestored': Timestamp.now(), // Update last restored time
-        });
-
-        // Update countdown timer
-        _fetchLastRestoredTime(); // Refresh countdown after deduction
-        setState(() {}); // Update UI
-        return true; // Return true if life was successfully deducted
-      }
+    if (_currentUserData == null || _lives <= 0 || !mounted) {
+      if (mounted && _lives <=0) Toast.show("Недостаточно жизней!", duration: Toast.lengthShort);
+      return false;
     }
-    return false; // Return false if there are no lives left
-  }
 
-  Future<void> _getUserLanguageLevel() async {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+    int newLives = _lives - 1;
+    // Время списания жизни. Если жизней было 5, то это время станет новой точкой отсчета для восстановления.
+    Timestamp timeOfDeduction = Timestamp.now(); 
 
-    if (currentUser != null) {
-      final String id = currentUser.uid;
+    try {
+      await _usersCollection.updateUserCollection(_currentUserData!.uid, {
+        'lives': newLives,
+        // Обновляем lastRestored, чтобы таймер начал отсчет с момента траты жизни,
+        // если это была первая потраченная жизнь из полных 5.
+        // Если жизней было меньше 5, lastRestored не меняется, т.к. таймер уже идет.
+        if (_lives == 5) 'lastRestored': timeOfDeduction,
+      });
 
-      // Get user data from Firestore
-      DocumentSnapshot userSnapshot =
-          await FirebaseFirestore.instance.collection('users').doc(id).get();
-
-      if (userSnapshot.exists) {
+      if (mounted) {
         setState(() {
-          userLanguageLevel = userSnapshot['language'] ?? '';
-          lives = userSnapshot['lives'] ?? 0; // Get number of lives
+          _lives = newLives;
+          _currentUserData = _currentUserData!.copyWith(
+            lives: newLives,
+            lastRestored: (_lives == 5) ? timeOfDeduction : _currentUserData!.lastRestored // Обновляем локально, если нужно
+          );
         });
+        _initializeLifeTimer(newLives, (_lives == 5 && newLives < 5) ? timeOfDeduction : _currentUserData!.lastRestored);
       }
+      return true;
+    } catch (e) {
+      if (mounted) Toast.show("Ошибка при списании жизни.", duration: Toast.lengthShort);
+      return false;
     }
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  // --- Смена языка ---
+  Future<void> _onLanguageChanged(String newLanguageCode) async {
+    if (_currentUserData == null || newLanguageCode == _currentLearningLanguage || !mounted) return;
+    
+    // Показываем индикатор загрузки на время смены языка
+    if (mounted) {
+      // Не используем setState здесь, чтобы не перерисовывать весь экран ради индикатора
+      // Вместо этого, индикатор будет частью логики, если _isLoading = true
+      // Но для быстрой смены языка можно показать диалог
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(child: CircularProgressIndicator(color: Colors.white)), // Цвет для лучшей видимости, если фон темный
+      );
+    }
 
-    switch (index) {
-      case 0:
-        break;
-      case 1:
-        Navigator.pushReplacementNamed(context, '/games');
-        break;
-      case 2:
-        Navigator.pushReplacementNamed(context, '/notifications');
-        break;
-      case 3:
-        Navigator.pushReplacementNamed(context, '/settings');
-        break;
-      case 4:
-        Navigator.pushReplacementNamed(context, '/profile');
-        break;
+    try {
+      await _usersCollection.updateUserCollection(_currentUserData!.uid, {
+        'languageSettings.currentLearningLanguage': newLanguageCode,
+      });
+      // Перезагружаем всю страницу с новыми данными для выбранного языка
+      await _initializePage(isLanguageChange: true); // isLanguageChange: true, чтобы не показывать основной лоадер
+    } catch (e) {
+      if (mounted) Toast.show("Ошибка смены языка", duration: Toast.lengthShort);
+    } finally {
+      if (mounted) {
+        Navigator.pop(context); // Закрываем диалог загрузки
+        // setState(() { _isLoading = false; }); // _initializePage сам управляет _isLoading
+      }
+    }
+  }
+  
+  // --- Навигация на урок ---
+  void _navigateToLesson(Lesson lesson) async {
+      if (!mounted) return;
+
+      bool canProceed = await _deductLife(); 
+      if (!canProceed) {
+          return; 
+      }
+      
+      print("Navigating to lesson: ${lesson.title} (ID: ${lesson.id}, Collection: ${lesson.collectionName})");
+      
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LessonPlayerPage( // ВАШ УНИВЕРСАЛЬНЫЙ ПЛЕЕР УРОКОВ
+              lesson: lesson,
+              onProgressUpdated: _handleProgressUpdate, // Коллбэк для обновления прогресса
+            ),
+          ),
+        ).then((_) {
+          // Вызывается после возврата со страницы урока
+          if (mounted) {
+            // Можно обновить данные, если это необходимо
+            // setState(() {}); // Например, для обновления жизней, если они восстановились во время урока
+          }
+        });
+      }
+  }
+
+  // --- Обновление прогресса ---
+  void _handleProgressUpdate(String lessonId, int newProgress) async {
+    if (_currentUserData == null || !mounted) return;
+
+    // Оптимистичное обновление UI
+    if (mounted) {
+      setState(() {
+        _currentUserData = _currentUserData!.updateLessonProgress(_currentLearningLanguage, lessonId, newProgress);
+      });
+    }
+    // Обновление в Firestore
+    await _usersCollection.updateLessonProgressInUserDoc(
+        _currentUserData!.uid, _currentLearningLanguage, lessonId, newProgress);
+  }
+  
+  // --- Удаление урока (для админа) ---
+  Future<void> _deleteLesson(Lesson lesson) async {
+    if (!_isAdmin || _currentUserData == null || !mounted) return;
+
+    bool confirmDelete = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext dialogContext) => AlertDialog(
+              title: Text("Удалить урок?"),
+              content: Text("Вы уверены, что хотите удалить урок '${lesson.title}' из коллекции '${lesson.collectionName}'? Это действие необратимо."),
+              actions: <Widget>[
+                TextButton(child: Text("Отмена"), onPressed: () => Navigator.of(dialogContext).pop(false)),
+                TextButton(child: Text("Удалить", style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(dialogContext).pop(true)),
+              ],
+            )) ?? false;
+
+    if (confirmDelete) {
+      try {
+        // Используем collectionName из объекта Lesson для удаления из правильной коллекции
+        await _lessonsCollection.deleteLessonFromCollection(lesson.collectionName, lesson.id);
+        if (mounted) Toast.show("Урок '${lesson.title}' удален.", duration: Toast.lengthShort);
+        // Перезагружаем уроки для текущего языка
+        await _fetchLessonsForCurrentLanguage();
+      } catch (e) {
+        if (mounted) Toast.show("Ошибка удаления урока.", duration: Toast.lengthShort);
+        print("Error deleting lesson: $e");
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+  void dispose() {
+    _lifeRestoreTimer?.cancel();
+    _remainingTimeForLifeNotifier.dispose();
+    _fadeController.dispose();
+    super.dispose();
+  }
 
-    if (currentUser == null) {
-      return const Center(child: Text("Пользователь не найден"));
+  // --- Методы для UI ---
+  @override
+  Widget build(BuildContext context) {
+    ToastContext().init(context); // Для пакета toast
+
+    // Определяем, нужно ли показывать селектор языка в AppBar
+    bool canShowLanguageSelector = false;
+    List<String> availableLangsForSelector = [];
+
+    if (_currentUserData != null &&
+        _currentUserData!.languageSettings != null &&
+        _currentUserData!.languageSettings!.learningProgress.isNotEmpty) {
+      // Показываем селектор, если доступно больше одного языка для изучения
+      canShowLanguageSelector = _currentUserData!.languageSettings!.learningProgress.keys.length > 1;
+      if (canShowLanguageSelector) {
+        availableLangsForSelector = _currentUserData!.languageSettings!.learningProgress.keys.toList();
+      }
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Учить"),
-        backgroundColor: Colors.green[700],
-        automaticallyImplyLeading: false,
-        // leading: IconButton(
-        //   icon: const Icon(Icons.arrow_back),
-        //   onPressed: () {
-        //     Navigator.pushReplacementNamed(
-        //         context, '/profile'); // Возврат на предыдущую страницу
-        //   },
-        // ),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Верхняя панель с курсом и статусом
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: Colors.green[600],
-                borderRadius: BorderRadius.circular(16),
+        centerTitle: true,
+        title: _isLoading 
+            ? Text("Загрузка...", style: TextStyle(fontSize: 18, color: Colors.white))
+            : Text(
+                _getLanguageDisplayName(_currentLearningLanguage), 
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white)
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 30,
-                          backgroundColor: Colors.white,
-                          child: Icon(
-                            Icons.school,
-                            size: 32,
-                            color: Colors.green[700],
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Изучение английского языка',
-                                style: TextStyle(
-                                    fontSize: 16, color: Colors.white),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 16),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Восстановление',
-                                    style: TextStyle(
-                                        fontSize: 14, color: Colors.white),
-                                  ),
-                                  ValueListenableBuilder<int>(
-                                    valueListenable: _remainingTimeNotifier,
-                                    builder: (context, remainingTime, child) {
-                                      return Text(
-                                        _formatTime(remainingTime),
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      );
-                                    },
-                                  )
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      const SizedBox(width: 8),
-                      _StatusInfo(
-                          icon: Icons.heart_broken_rounded, count: lives),
-                    ],
-                  ),
-                ],
-              ),
+        backgroundColor: const Color.fromARGB(255, 0, 167, 28), // Немного другой оттенок зеленого
+        elevation: 0, // Плоский AppBar для "карточного" стиля
+        automaticallyImplyLeading: false, // Убираем кнопку "назад" по умолчанию
+        actions: [
+          _buildLivesIndicator(), // Индикатор жизней
+          // Селектор языка, если доступно несколько
+          if (canShowLanguageSelector)
+             LanguageSelectorWidget( // Ваш кастомный виджет для выбора языка
+                availableLanguages: availableLangsForSelector,
+                currentLanguageCode: _currentLearningLanguage,
+                onLanguageSelected: _onLanguageChanged, // Метод для смены языка
+             )
+          // Если только один язык, можно просто показать его код или короткое название
+          else if (_currentUserData != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Center(child: Text(_getLanguageDisplayName(_currentLearningLanguage, short: true), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
             ),
-
-            const SizedBox(height: 16),
-            _AudioMessageCard(),
-
-            // Основная область контента
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Lessons list
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: FutureBuilder(
-                          future: fetchLessonsFromFirestore(),
-                          builder: (context,
-                              AsyncSnapshot<List<Map<String, dynamic>>>
-                                  snapshot) {
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            } else if (snapshot.hasError) {
-                              return Center(
-                                  child: Text("Ошибка: ${snapshot.error}"));
-                            } else {
-                              final lessons = snapshot.data ?? [];
-                              return Column(
-                                children: [
-                                  for (var lesson in lessons)
-                                    _LessonCard(
-                                        title: lesson['title'],
-                                        icon: Icons.book,
-                                        onTap: () async {
-                                          bool lifeDeducted =
-                                              await _deductLife();
-                                          if (lifeDeducted) {
-                                            await fetchAndSaveQuestions(
-                                                lesson['id']);
-                                            Navigator.pushNamed(
-                                                context, '/lesson',
-                                                arguments: lesson['id']);
-                                          } else {
-                                            // Показать сообщение о недостатке жизней
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
-                                              const SnackBar(
-                                                  content: Text(
-                                                      'Недостаточно жизней для прохождения урока')),
-                                            );
-                                          }
-                                        })
-                                ],
-                              );
-                            }
-                          },
-                        ),
-                      ),
-
-                      // Вторая строка карточек
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: FutureBuilder(
-                          future: fetchAddLessonsFromFirestore(),
-                          builder: (context,
-                              AsyncSnapshot<List<Map<String, dynamic>>>
-                                  snapshot) {
-                            if (snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            } else if (snapshot.hasError) {
-                              return Center(
-                                  child: Text("Ошибка: ${snapshot.error}"));
-                            } else {
-                              final addLessons = snapshot.data ?? [];
-                              return GridView.builder(
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  childAspectRatio: 1.40,
-                                  crossAxisSpacing:
-                                      3.0, // Уменьшено расстояние по горизонтали
-                                  mainAxisSpacing: 2.0,
-                                ),
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: addLessons.length,
-                                itemBuilder: (context, index) {
-                                  final lesson = addLessons[index];
-                                  return FutureBuilder(
-                                    future: FirebaseFirestore.instance
-                                        .collection('users')
-                                        .doc(FirebaseAuth
-                                            .instance.currentUser?.uid)
-                                        .get(),
-                                    builder: (context, snapshot) {
-                                      if (snapshot.connectionState ==
-                                          ConnectionState.waiting) {
-                                        return const CircularProgressIndicator();
-                                      } else if (snapshot.hasError) {
-                                        return Text(
-                                            'Ошибка: ${snapshot.error}');
-                                      } else if (!snapshot.hasData ||
-                                          !(snapshot.data?.exists ?? false)) {
-                                        return const Text(
-                                            'Нет данных о пользователе');
-                                      }
-
-                                      // Извлекаем данные пользователя
-                                      final userData = snapshot.data!;
-                                      final isAdmin = userData['email'] ==
-                                          'admin@mail.ru'; // Проверяем, является ли пользователь администратором
-
-                                      // Извлекаем прогресс пользователя
-                                      final userProgressData =
-                                          userData['progress'] ?? {};
-                                      int lessonProgress = 0;
-
-                                      if (userProgressData
-                                          is Map<String, dynamic>) {
-                                        lessonProgress =
-                                            userProgressData[lesson['id']] ?? 0;
-                                      } else if (userProgressData is int) {
-                                        lessonProgress = userProgressData;
-                                      }
-
-                                      return Container(
-                                        height: 150,
-                                        child: Column(
-                                          children: [
-                                            _AddLessonCard(
-                                              title: lesson['lessonName'] ??
-                                                  'Без названия',
-                                              lessonId: lesson['id'] ?? '',
-                                              progress: lessonProgress,
-                                              onTap: () async {
-                                                bool lifeDeducted =
-                                                    await _deductLife();
-                                                if (lifeDeducted) {
-                                                  if (lesson['id'] != null &&
-                                                      lesson['id'] != '') {
-                                                    Navigator.push(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                        builder: (context) =>
-                                                            LessonPage1(
-                                                          lessonId:
-                                                              lesson['id'],
-                                                          lessonLevel: lesson[
-                                                              'level'], // Передаем уровень урока
-                                                          onProgressUpdated:
-                                                              (progress) {
-                                                            setState(() {
-                                                              lessonProgress =
-                                                                  progress;
-                                                            });
-                                                          },
-                                                        ),
-                                                      ),
-                                                    );
-                                                  } else {
-                                                    ScaffoldMessenger.of(
-                                                            context)
-                                                        .showSnackBar(
-                                                      const SnackBar(
-                                                          content: Text(
-                                                              'Нет доступных уроков')),
-                                                    );
-                                                  }
-                                                } else {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(
-                                                    const SnackBar(
-                                                        content: Text(
-                                                            'Недостаточно жизней для прохождения урока')),
-                                                  );
-                                                }
-                                              },
-                                            ),
-                                            if (isAdmin) // Отображаем кнопку удаления, если пользователь администратор
-                                              IconButton(
-                                                icon: const Icon(Icons.delete,
-                                                    color: Colors.red),
-                                                onPressed: () {
-                                                  _deleteaddLesson(lesson[
-                                                      'id']); // Ваша логика удаления
-                                                },
-                                              ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  );
-                                },
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Уроки для Elementary",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                height: 700, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future: fetchUpperLessonsFromFirestore(),
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final upperLessons = snapshot.data ?? [];
-
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing: 16,
-                                          mainAxisSpacing: 16,
-                                        ),
-                                        itemCount: upperLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(),
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              upperLessons[index]['level'] ??
-                                                  '';
-                                          bool isAccessible =
-                                              _checkLessonAccess(lessonLevel);
-                                          // Получаем прогресс для текущего урока
-                                          int progress = upperLessons[index]
-                                                  ['progress'] ??
-                                              0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _UpperLessonCard(
-                                                  title: upperLessons[index]
-                                                          ['title'] ??
-                                                      'Урок',
-                                                  lessonId: upperLessons[index]
-                                                          ['id'] ??
-                                                      '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife();
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                UpperLessonPage(
-                                                              lessonId:
-                                                                  upperLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                              onProgressUpdated:
-                                                                  (newProgress) {
-                                                                setState(() {
-                                                                  // Обновляем прогресс для текущего урока
-                                                                  upperLessons[
-                                                                              index]
-                                                                          [
-                                                                          'progress'] =
-                                                                      newProgress;
-                                                                });
-                                                              },
-                                                              lessonLevel: upperLessons[
-                                                                          index]
-                                                                      [
-                                                                      'languageLevel'] ??
-                                                                  '',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress:
-                                                      progress, // Отображаем текущий прогресс
-                                                ),
-                                                if (isAdmin)
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {},
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Уроки для Intermediate",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                height: 400, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future: fetchUpperInterLessonsFromFirestore(),
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final upperinterLessons =
-                                          snapshot.data ?? [];
-                                      int lessonProgress =
-                                          0; // Инициализация переменной прогресса
-
-                                      // Извлекаем прогресс пользователя
-                                      final userProgressData = snapshot
-                                          .data; // Замените на актуальный вызов, если нужно
-                                      if (userProgressData
-                                          is List<Map<String, dynamic>>) {
-                                        // Пример, как получить прогресс конкретного урока
-                                        lessonProgress = userProgressData
-                                                .isNotEmpty
-                                            ? userProgressData[0]['progress'] ??
-                                                0
-                                            : 0; // Здесь можно установить логику для получения прогресса
-                                      }
-
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing:
-                                              8.0, // Уменьшено расстояние по горизонтали
-                                          mainAxisSpacing: 8.0,
-                                        ),
-                                        itemCount: upperinterLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(),
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              upperinterLessons[index]
-                                                      ['level'] ??
-                                                  '';
-                                          bool isAccessible =
-                                              _checkLessonAccess(lessonLevel);
-                                          // Получаем прогресс для текущего урока
-                                          int progress =
-                                              upperinterLessons[index]
-                                                      ['progress'] ??
-                                                  0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _UpperInterLessonCard(
-                                                  title:
-                                                      upperinterLessons[index]
-                                                              ['title'] ??
-                                                          'Урок',
-                                                  lessonId:
-                                                      upperinterLessons[index]
-                                                              ['id'] ??
-                                                          '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife();
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                UpperInterLessonPage(
-                                                              lessonId:
-                                                                  upperinterLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                              onProgressUpdated:
-                                                                  (newProgress) {
-                                                                setState(() {
-                                                                  lessonProgress =
-                                                                      newProgress; // Обновляем прогресс
-                                                                });
-                                                              },
-                                                              languageLevel:
-                                                                  upperinterLessons[
-                                                                              index]
-                                                                          [
-                                                                          'languageLevel'] ??
-                                                                      '',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress:
-                                                      progress, // Отображаем текущий прогресс
-                                                ),
-                                                if (isAdmin)
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {},
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Уроки для Upper Intermediate",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                height: 400, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future:
-                                      fetchUpperUpInterLessonsFromFirestore(),
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final upperupinterupLessons =
-                                          snapshot.data ?? [];
-                                      int lessonProgress =
-                                          0; // Инициализация переменной прогресса
-
-                                      // Извлекаем прогресс пользователя
-                                      final userProgressData = snapshot
-                                          .data; // Замените на актуальный вызов, если нужно
-                                      if (userProgressData
-                                          is List<Map<String, dynamic>>) {
-                                        // Пример, как получить прогресс конкретного урока
-                                        lessonProgress = userProgressData
-                                                .isNotEmpty
-                                            ? userProgressData[0]['progress'] ??
-                                                0
-                                            : 0; // Здесь можно установить логику для получения прогресса
-                                      }
-
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing:
-                                              8.0, // Уменьшено расстояние по горизонтали
-                                          mainAxisSpacing: 8.0,
-                                        ),
-                                        itemCount: upperupinterupLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(),
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              upperupinterupLessons[index]
-                                                      ['level'] ??
-                                                  '';
-                                          bool isAccessible =
-                                              _checkLessonAccess(lessonLevel);
-                                          // Получаем прогресс для текущего урока
-                                          int progress =
-                                              upperupinterupLessons[index]
-                                                      ['progress'] ??
-                                                  0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _UpperUpInterLessonCard(
-                                                  title: upperupinterupLessons[
-                                                          index]['title'] ??
-                                                      'Урок',
-                                                  lessonId:
-                                                      upperupinterupLessons[
-                                                              index]['id'] ??
-                                                          '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife();
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                UpperUpInterLessonPage(
-                                                              lessonId:
-                                                                  upperupinterupLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                              onProgressUpdated:
-                                                                  (newProgress) {
-                                                                setState(() {
-                                                                  lessonProgress =
-                                                                      newProgress; // Обновляем прогресс
-                                                                });
-                                                              },
-                                                              languageLevel:
-                                                                  upperupinterupLessons[
-                                                                              index]
-                                                                          [
-                                                                          'languageLevel'] ??
-                                                                      '',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress:
-                                                      progress, // Отображаем текущий прогресс
-                                                ),
-                                                if (isAdmin)
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {},
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Уроки для Advanced",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              SizedBox(
-                                height: 400, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future: fetchAdvancedLessonsFromFirestore(),
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final advancedLessons =
-                                          snapshot.data ?? [];
-                                      int lessonProgress =
-                                          0; // Инициализация переменной прогресса
-
-                                      // Извлекаем прогресс пользователя
-                                      final userProgressData = snapshot
-                                          .data; // Замените на актуальный вызов, если нужно
-                                      if (userProgressData
-                                          is List<Map<String, dynamic>>) {
-                                        // Пример, как получить прогресс конкретного урока
-                                        lessonProgress = userProgressData
-                                                .isNotEmpty
-                                            ? userProgressData[0]['progress'] ??
-                                                0
-                                            : 0; // Здесь можно установить логику для получения прогресса
-                                      }
-
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing: 16,
-                                          mainAxisSpacing: 16,
-                                        ),
-                                        itemCount: advancedLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(),
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              advancedLessons[index]['level'] ??
-                                                  '';
-                                          bool isAccessible =
-                                              _checkLessonAccess(lessonLevel);
-                                          // Получаем прогресс для текущего урока
-                                          int progress = advancedLessons[index]
-                                                  ['progress'] ??
-                                              0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _AdvancedLessonCard(
-                                                  title: advancedLessons[index]
-                                                          ['title'] ??
-                                                      'Урок',
-                                                  lessonId:
-                                                      advancedLessons[index]
-                                                              ['id'] ??
-                                                          '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife();
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                AdvancedLessonPage(
-                                                              lessonId:
-                                                                  advancedLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                              onProgressUpdated:
-                                                                  (newProgress) {
-                                                                setState(() {
-                                                                  lessonProgress =
-                                                                      newProgress; // Обновляем прогресс
-                                                                });
-                                                              },
-                                                              languageLevel:
-                                                                  advancedLessons[
-                                                                              index]
-                                                                          [
-                                                                          'languageLevel'] ??
-                                                                      '',
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress:
-                                                      progress, // Отображаем текущий прогресс
-                                                ),
-                                                if (isAdmin)
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {},
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Секция аудиоуроков
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Аудио уроки",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              // Оберните GridView в SizedBox с фиксированной высотой
-                              SizedBox(
-                                height: 400, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future: fetchAudioLessonsFromFirestore(),
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final audioLessons = snapshot.data ?? [];
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing: 16,
-                                          mainAxisSpacing: 16,
-                                        ),
-                                        itemCount: audioLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(), // Отключите прокрутку
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              audioLessons[index]
-                                                      ['languageLevel'] ??
-                                                  '';
-                                          bool isAccessible =
-                                              _checkLessonAccess(lessonLevel);
-                                          int progress = audioLessons[index]
-                                                  ['progress'] ??
-                                              0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _AudioLessonCard(
-                                                  title: audioLessons[index]
-                                                          ['title'] ??
-                                                      'Урок',
-                                                  lessonId: audioLessons[index]
-                                                          ['id'] ??
-                                                      '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife();
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                AudioLessonPage(
-                                                              lessonId:
-                                                                  audioLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress: progress,
-                                                ),
-                                                if (isAdmin) // Отображаем кнопку удаления, если пользователь администратор
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {
-                                                        _deleteaudioLesson(
-                                                            audioLessons[index]
-                                                                ['id']);
-                                                      },
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-// Секция видеоуроков
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 8.0),
-                                child: const Text(
-                                  "Видео уроки",
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              // Оберните GridView в SizedBox с фиксированной высотой
-                              SizedBox(
-                                height: 400, // Ограничьте высоту GridView
-                                child: FutureBuilder(
-                                  future:
-                                      fetchVideoLessonsFromFirestore(), // Функция для получения видеоуроков из Firestore
-                                  builder: (context,
-                                      AsyncSnapshot<List<Map<String, dynamic>>>
-                                          snapshot) {
-                                    if (snapshot.connectionState ==
-                                        ConnectionState.waiting) {
-                                      return const Center(
-                                          child: CircularProgressIndicator());
-                                    } else if (snapshot.hasError) {
-                                      return Center(
-                                          child: Text(
-                                              "Ошибка: ${snapshot.error}"));
-                                    } else {
-                                      final videoLessons = snapshot.data ?? [];
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          childAspectRatio: 0.75,
-                                          crossAxisSpacing: 16,
-                                          mainAxisSpacing: 16,
-                                        ),
-                                        itemCount: videoLessons.length,
-                                        physics:
-                                            const NeverScrollableScrollPhysics(), // Отключите прокрутку
-                                        itemBuilder: (context, index) {
-                                          String lessonLevel =
-                                              videoLessons[index]
-                                                      ['languageLevel'] ??
-                                                  '';
-                                          bool isAccessible = _checkLessonAccess(
-                                              lessonLevel); // Проверка доступа к уроку
-                                          int progress = videoLessons[index]
-                                                  ['progress'] ??
-                                              0;
-
-                                          return Container(
-                                            height: 200,
-                                            child: Stack(
-                                              children: [
-                                                _VideoLessonCard(
-                                                  title: videoLessons[index]
-                                                          ['title'] ??
-                                                      'Видео урок',
-                                                  lessonId: videoLessons[index]
-                                                          ['id'] ??
-                                                      '',
-                                                  onTap: () async {
-                                                    bool lifeDeducted =
-                                                        await _deductLife(); // Снятие жизни при прохождении урока
-                                                    if (lifeDeducted) {
-                                                      if (isAccessible) {
-                                                        Navigator.push(
-                                                          context,
-                                                          MaterialPageRoute(
-                                                            builder: (context) =>
-                                                                VideoLessonPage(
-                                                              lessonId:
-                                                                  videoLessons[
-                                                                          index]
-                                                                      ['id'],
-                                                              title: videoLessons[
-                                                                      index][
-                                                                  'title'], // Передаем title если нужно
-                                                              videoUrl:
-                                                                  videoLessons[
-                                                                          index]
-                                                                      [
-                                                                      'videoUrl'], // Передаем ссылку на видео
-                                                            ),
-                                                          ),
-                                                        );
-                                                      } else {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Урок не доступен на вашем уровне: $lessonLevel'),
-                                                          ),
-                                                        );
-                                                      }
-                                                    } else {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Недостаточно жизней для прохождения урока'),
-                                                        ),
-                                                      );
-                                                    }
-                                                  },
-                                                  isAccessible: isAccessible,
-                                                  progress: progress,
-                                                ),
-                                                if (isAdmin) // Отображаем кнопку удаления, если пользователь администратор
-                                                  Positioned(
-                                                    top: 8,
-                                                    right: 8,
-                                                    child: IconButton(
-                                                      icon: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.red),
-                                                      onPressed: () {
-                                                        _deletevideoLesson(
-                                                            videoLessons[index]
-                                                                ['id']);
-                                                      },
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ]),
-              ),
-            )
-          ],
-        ),
+        ],
       ),
+      body: _buildBody(),
+      bottomNavigationBar: _buildBottomNavigationBar(),
+    );
+  }
 
-      // BottomNavigationBar
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: Icon(Icons.school),
-            label: 'Учиться',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.gamepad), // Icon for "Read"
-            label: 'Играть',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications),
-            label: 'Уведомления',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Настройки',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Профиль',
+  Widget _buildLivesIndicator() {
+    return Padding(
+      padding: const EdgeInsets.only(right:12.0, left: 8.0), // Небольшие отступы
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.favorite, color: Colors.pinkAccent[100], size: 24),
+          const SizedBox(width: 5),
+          Text("$_lives", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(width: 8),
+          ValueListenableBuilder<int>(
+            valueListenable: _remainingTimeForLifeNotifier,
+            builder: (context, timeLeft, child) {
+              if (_lives >= 5 || timeLeft <= 0) return SizedBox.shrink(); // Не показывать таймер, если жизни полны или время 0
+              final minutes = (timeLeft ~/ 60).toString().padLeft(2, '0');
+              final seconds = (timeLeft % 60).toString().padLeft(2, '0');
+              return Text("$minutes:$seconds", style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.85)));
+            },
           ),
         ],
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.green[700],
-        onTap: _onItemTapped,
       ),
     );
   }
-
-  // Method to check lesson access
-  bool _checkLessonAccess(String requiredLevel) {
-    const levels = [
-      "Beginner",
-      "Elementary",
-      "Intermediate",
-      "Upper Intermediate",
-      "Advanced"
-    ];
-
-    int userLevelIndex = levels.indexOf(userLanguageLevel);
-    int requiredLevelIndex = levels.indexOf(requiredLevel);
-
-    // Урок доступен, если индекс уровня пользователя больше или равен требуемому
-    return userLevelIndex >= requiredLevelIndex;
+  
+  String _getLanguageDisplayName(String code, {bool short = false}) {
+    // Преобразуйте коды языков в отображаемые имена
+    if (short) {
+        switch (code.toLowerCase()) {
+            case 'english': return 'EN';
+            case 'spanish': return 'ES';
+            case 'german': return 'DE';
+            // Добавьте другие языки
+            default: return code.isNotEmpty ? code.toUpperCase().substring(0, (code.length > 1 ? 2:1) ) : "";
+        }
+    }
+    switch (code.toLowerCase()) {
+        case 'english': return 'Английский';
+        case 'spanish': return 'Испанский';
+        case 'german': return 'Немецкий';
+        // Добавьте другие языки
+        default: return code; // По умолчанию показываем код
+    }
   }
-}
 
-class _VideoLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final VoidCallback onTap;
-  final bool isAccessible;
-  final int progress;
+  Widget _buildBody() {
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator(color: Colors.teal[700], strokeWidth: 3));
+    }
 
-  _VideoLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    required this.progress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        elevation: 4,
+    if (_errorMessage != null) {
+       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(25.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              Icon(Icons.error_outline_rounded, color: Colors.red[600], size: 70),
+              SizedBox(height: 20),
+              Text(_errorMessage!, style: TextStyle(fontSize: 18, color: Colors.red[800], fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+              SizedBox(height: 30),
+              ElevatedButton.icon(
+                icon: Icon(Icons.refresh_rounded),
+                label: Text("Попробовать снова", style: TextStyle(fontSize: 16)),
+                onPressed: () => _initializePage(), // Повторная инициализация
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal[600], // Цвет кнопки
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
                 ),
-              ),
-              const Spacer(),
-              // Отображение прогресса
-              // LinearProgressIndicator(
-              //   value: progress / 100,
-              //   backgroundColor: Colors.grey[300],
-              //   color: isAccessible ? Colors.green : Colors.red,
-              // ),
-              const SizedBox(height: 8),
-              // Text(
-              //   '$progress% завершено',
-              //   style: TextStyle(
-              //     fontSize: 14,
-              //     color: Colors.grey[600],
-              //   ),
-              // ),
+              )
             ],
           ),
+        )
+      );
+    }
+
+    if (_currentUserData == null) {
+      // Это состояние не должно достигаться, если _handleUnauthenticatedUser работает правильно
+      return const Center(child: Text("Нет данных пользователя. Пожалуйста, перезапустите приложение.", style: TextStyle(fontSize: 16)));
+    }
+
+    // Группируем уроки по требуемому уровню
+    Map<String, List<Lesson>> lessonsByLevelMap = {};
+    for (var lesson in _allLessonsForCurrentLanguage) {
+      // Используем requiredLevel урока для группировки
+      String levelKey = _levelOrder.contains(lesson.requiredLevel) ? lesson.requiredLevel : 'Прочее';
+      lessonsByLevelMap.putIfAbsent(levelKey, () => []).add(lesson);
+    }
+    
+    // Получаем текущий уровень пользователя для активного языка
+    final userCurrentLevel = _currentUserData!.languageSettings!.learningProgress[_currentLearningLanguage]?.level ?? 'NotStarted';
+    final userLessonProgress = _currentUserData!.languageSettings!.learningProgress[_currentLearningLanguage]?.lessonsCompleted ?? {};
+
+    List<Widget> adventurePathWidgets = [];
+    bool previousLevelConsideredUnlocked = true; // Начинаем с того, что "нулевой" уровень (до Beginner) пройден
+
+    for (String levelName in _levelOrder) {
+      final lessonsInThisLevel = lessonsByLevelMap[levelName] ?? [];
+      // Доступен ли этот уровень В ПРИНЦИПЕ по уровню пользователя (независимо от прохождения предыдущих)
+      bool isLevelGloballyAccessibleByUser = _isLevelEffectivelyAccessible(userCurrentLevel, levelName);
+      
+      // Эффективно ли разблокирована текущая секция (уровень пользователя позволяет И предыдущий уровень пройден)
+      bool currentSectionEffectivelyUnlocked = isLevelGloballyAccessibleByUser && previousLevelConsideredUnlocked;
+
+      // Пропускаем рендеринг секции 'Прочее', если в ней нет уроков
+      if (levelName == 'Прочее' && lessonsInThisLevel.isEmpty) {
+        continue;
+      }
+
+      adventurePathWidgets.add(
+        _AdventureLevelSection(
+          levelName: levelName,
+          lessons: lessonsInThisLevel,
+          userLevel: userCurrentLevel, // Текущий уровень пользователя для этого языка
+          userLessonProgress: userLessonProgress, // Прогресс по урокам для этого языка
+          isEffectivelyUnlocked: currentSectionEffectivelyUnlocked,
+          onLessonTap: _navigateToLesson,
+          isAdmin: _isAdmin,
+          onDeleteLesson: _deleteLesson,
+          levelColor: _levelColors[levelName] ?? Colors.grey,
+          levelIcon: _levelIcons[levelName] ?? Icons.error_outline,
+        )
+      );
+      
+      // Логика для разблокировки следующего уровня:
+      // Следующий уровень считается доступным, если:
+      // 1. Текущий уровень был эффективно разблокирован.
+      // 2. Все уроки в текущем эффективно разблокированном уровне пройдены (progress >= 100).
+      // Если в текущем разблокированном уровне нет уроков, то доступность следующего зависит от предыдущего.
+      if (currentSectionEffectivelyUnlocked && lessonsInThisLevel.isNotEmpty) {
+          bool allLessonsInThisLevelDone = lessonsInThisLevel.every((l) => (userLessonProgress[l.id] ?? 0) >= 100);
+          previousLevelConsideredUnlocked = allLessonsInThisLevelDone;
+      } else if (!currentSectionEffectivelyUnlocked) {
+          // Если текущая секция заблокирована, то и все последующие тоже будут считаться заблокированными с точки зрения "прохождения"
+          previousLevelConsideredUnlocked = false;
+      }
+      // Если уроков в текущем разблокированном уровне нет, то previousLevelConsideredUnlocked не меняется,
+      // и доступность следующего уровня будет зависеть от того, был ли пройден предыдущий уровень с уроками.
+
+      // Добавляем соединитель пути, если это не последний уровень в _levelOrder
+      if (levelName != _levelOrder.last && _levelOrder.indexOf(levelName) < _levelOrder.length -1) {
+        // Определяем, будет ли следующий уровень доступен по уровню пользователя
+        String nextLevelName = _levelOrder[_levelOrder.indexOf(levelName) + 1];
+        bool isNextLevelAccessibleByLevel = _isLevelEffectivelyAccessible(userCurrentLevel, nextLevelName);
+        
+        adventurePathWidgets.add(
+          _PathConnector(
+            // Соединитель "разблокирован", если текущий уровень пройден И следующий уровень доступен по знаниям
+            isUnlocked: currentSectionEffectivelyUnlocked && previousLevelConsideredUnlocked && isNextLevelAccessibleByLevel,
+            color: _levelColors[nextLevelName] ?? Colors.grey, // Цвет следующего уровня
+          )
+        );
+      }
+    }
+
+    // Если список пуст (например, для нового языка еще нет уроков в БД)
+    if (_allLessonsForCurrentLanguage.isEmpty && !_isLoading) {
+       adventurePathWidgets.add(
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40.0, horizontal: 20.0),
+            child: Column(
+              children: [
+                Icon(Icons.explore_off_rounded, size: 80, color: Colors.grey[500]),
+                SizedBox(height: 20),
+                Text(
+                  "Уроки для языка '${_getLanguageDisplayName(_currentLearningLanguage)}' скоро появятся!",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, color: Colors.grey[700], fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        )
+      );
+    }
+
+
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Container(
+        // Фоновое изображение для "Пути Приключений"
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage("images/adventure_background.png"), // ЗАМЕНИТЕ НА СВОЙ ФОН
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.2), BlendMode.dstATop) // Легкое затемнение фона
+          ),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
+          children: adventurePathWidgets,
         ),
       ),
     );
   }
-}
+  
+  // Проверяет, доступен ли requiredLevel на основе текущего уровня пользователя userLevel
+  bool _isLevelEffectivelyAccessible(String userLevel, String requiredLevel) {
+    int userLevelIndex = _levelOrder.indexOf(userLevel);
+    int requiredLevelIndex = _levelOrder.indexOf(requiredLevel);
 
-Future<List<Map<String, dynamic>>> fetchVideoLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('videolessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
+    // Если уровень пользователя не найден в _levelOrder (например, "NotStarted" или кастомный),
+    // считаем его ниже Beginner, если это не сам Beginner.
+    if (userLevelIndex == -1 && userLevel.toLowerCase() != 'notstarted') {
+      // Это может быть кастомный уровень или ошибка. Безопаснее считать его начальным.
+      userLevelIndex = 0; // Предполагаем, что это Beginner или что-то перед ним.
+    }
+    
+    // Специальная обработка для "NotStarted"
+    if (userLevel.toLowerCase() == 'notstarted') {
+        return requiredLevel == 'Beginner'; // Только Beginner доступен, если уровень "NotStarted"
+    }
 
-Future<List<Map<String, dynamic>>> fetchAudioLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('audiolessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-Future<List<Map<String, dynamic>>> fetchUpperLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('upperlessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-Future<List<Map<String, dynamic>>>
-    fetchUpperUpInterLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('upperupinterlessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-Future<List<Map<String, dynamic>>> fetchAdvancedLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('advancedlessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-Future<List<Map<String, dynamic>>> fetchUpperInterLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('upperinterlessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-Future<List<Map<String, dynamic>>> fetchAddLessonsFromFirestore() async {
-  final snapshot =
-      await FirebaseFirestore.instance.collection('addlessons').get();
-  return snapshot.docs
-      .map((doc) => doc.data() as Map<String, dynamic>..['id'] = doc.id)
-      .toList();
-}
-
-class _AudioMessageCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: ListTile(
-        leading: CircleAvatar(
-          radius: 30,
-          backgroundColor: Colors.green[600],
-          child: const Icon(Icons.mic, color: Colors.white, size: 32),
-        ),
-        title: const Text(
-          'Узнать как говорить',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => AudioPage()),
-          );
-        },
-      ),
-    );
+    return userLevelIndex >= requiredLevelIndex;
   }
-}
+  
+  BottomNavigationBar _buildBottomNavigationBar() {
+    // UI для BottomNavigationBar
+    return BottomNavigationBar(
+      type: BottomNavigationBarType.fixed, // Чтобы все метки были видны
+      currentIndex: _bottomNavSelectedIndex,
+      onTap: (index) {
+        if (!mounted) return;
+        // Не перезагружать страницу, если мы уже на ней (особенно для LearnPage)
+        if (_bottomNavSelectedIndex == index && index == 0) return; 
 
-class _StatusInfo extends StatelessWidget {
-  final IconData icon;
-  final int count;
-
-  const _StatusInfo({Key? key, required this.icon, required this.count})
-      : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          size: 32,
-          color: Colors.white,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          count.toString(),
-          style: const TextStyle(color: Colors.white),
-        ),
+        setState(() { _bottomNavSelectedIndex = index; });
+        // Навигация
+        switch (index) {
+          case 0: /* Уже на LearnPage */ break; 
+          case 1: Navigator.pushReplacementNamed(context, '/games'); break;
+          case 2: Navigator.pushReplacementNamed(context, '/notifications'); break; // Или '/chats'
+          case 3: Navigator.pushReplacementNamed(context, '/settings'); break;
+          case 4: Navigator.pushReplacementNamed(context, '/profile'); break;
+        }
+      },
+      selectedItemColor: Colors.teal[800], // Цвет активного элемента
+      unselectedItemColor: Colors.grey[700], // Цвет неактивных элементов
+      selectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
+      unselectedLabelStyle: TextStyle(fontWeight: FontWeight.normal),
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: 'Путь'), // Иконка для "Пути"
+        BottomNavigationBarItem(icon: Icon(Icons.sports_esports_rounded), label: 'Играть'),
+        BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_rounded), label: 'Чаты'), // Если есть чаты
+        BottomNavigationBarItem(icon: Icon(Icons.settings_rounded), label: 'Настройки'),
+        BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Профиль'),
       ],
     );
   }
 }
 
-// Пример класса для отображения аудиоурока
-class _AudioLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final bool isAccessible;
-  final int progress; // Поле для прогресса
-  final VoidCallback onTap;
+// ---- ВИДЖЕТ ДЛЯ СЕКЦИИ УРОВНЯ НА КАРТЕ ----
+class _AdventureLevelSection extends StatelessWidget {
+  final String levelName;
+  final List<Lesson> lessons;
+  final String userLevel; // Текущий уровень пользователя для этого языка
+  final Map<String, int> userLessonProgress; // Прогресс по урокам
+  final bool isEffectivelyUnlocked; // Секция в целом разблокирована?
+  final Function(Lesson lesson) onLessonTap;
+  final bool isAdmin;
+  final Function(Lesson lesson) onDeleteLesson;
+  final Color levelColor;
+  final IconData levelIcon;
 
-  const _AudioLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    this.progress = 0, // Значение по умолчанию
-  });
+  const _AdventureLevelSection({
+    Key? key,
+    required this.levelName,
+    required this.lessons,
+    required this.userLevel,
+    required this.userLessonProgress,
+    required this.isEffectivelyUnlocked,
+    required this.onLessonTap,
+    required this.isAdmin,
+    required this.onDeleteLesson,
+    required this.levelColor,
+    required this.levelIcon,
+  }) : super(key: key);
+
+  // Статический список уровней для проверки доступности конкретного урока внутри секции
+  static const List<String> _levelOrderStatic = ['Beginner', 'Elementary', 'Intermediate', 'Upper Intermediate', 'Advanced'];
+
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor: Colors.green[600],
-              child: const Icon(Icons.mic, color: Colors.white, size: 32),
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: isAccessible
-                ? onTap
-                : () {
-                    // Если урок не доступен, показываем сообщение
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Урок не доступен на вашем уровне.'),
-                      ),
-                    );
-                  },
-          ),
-          // Отображение прогресса
-          LinearProgressIndicator(
-            value: progress / 100, // Преобразуем прогресс в диапазон от 0 до 1
-            backgroundColor: Colors.grey[300],
-            color: Colors.blue,
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              'Прогресс: $progress%', // Отображаем прогресс
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
+    // Не рисовать секцию (кроме Beginner), если она заблокирована и в ней нет уроков
+    // (чтобы не было пустых заблокированных карточек, кроме самого начала)
+    if (lessons.isEmpty && levelName != "Beginner" && !isEffectivelyUnlocked) {
+      return SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10.0, top: 10.0), // Отступы между секциями
+      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(isEffectivelyUnlocked ? 0.92 : 0.75), // Прозрачность для заблокированных
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isEffectivelyUnlocked ? levelColor.withOpacity(0.7) : Colors.grey[400]!.withOpacity(0.5), 
+          width: 2.5
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 10,
+            spreadRadius: 1,
+            offset: Offset(0, 5),
+          )
         ],
       ),
-    );
-  }
-}
-
-// Пример класса для отображения статуса
-
-// Пример класса для создания аудио сообщения
-
-// Пример класса для карточки урока
-// Обновленный метод для отображения карточек уроков с процентом выполнения
-class _LessonCard extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _LessonCard({
-    required this.title,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 4,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
+      child: Column(
+        children: [
+          // Заголовок уровня
+          Row(
             children: [
-              Icon(icon, size: 32),
-              const SizedBox(width: 8),
+              CircleAvatar(
+                backgroundColor: levelColor.withOpacity(isEffectivelyUnlocked ? 0.15 : 0.05),
+                child: Icon(levelIcon, color: isEffectivelyUnlocked ? levelColor : Colors.grey[500], size: 30),
+                radius: 30,
+              ),
+              SizedBox(width: 15),
               Expanded(
                 child: Text(
-                  title,
-                  style: const TextStyle(fontSize: 16),
+                  levelName,
+                  style: TextStyle(
+                    fontSize: 22, // Крупнее
+                    fontWeight: FontWeight.bold,
+                    color: isEffectivelyUnlocked ? Colors.black.withOpacity(0.85) : Colors.grey[600],
+                  ),
                 ),
               ),
+              if (!isEffectivelyUnlocked)
+                Icon(Icons.lock_person_rounded, color: Colors.grey[500], size: 30), // Иконка замка
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
+          Divider(height: 25, thickness: 1, color: Colors.grey[300]), // Разделитель
 
-bool _isLevelSufficient(String userLevel, String lessonLevel) {
-  const levels = [
-    "Beginner",
-    "Elementary",
-    "Intermediate",
-    "Upper Intermediate",
-    "Advanced"
-  ];
-  int userLevelIndex = levels.indexOf(userLevel);
-  int lessonLevelIndex = levels.indexOf(lessonLevel);
-
-  return userLevelIndex >= lessonLevelIndex;
-}
-
-class _UpperLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final bool isAccessible;
-  final int progress; // Поле для прогресса
-  final VoidCallback onTap;
-
-  const _UpperLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    this.progress = 0, // Значение по умолчанию
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor: const Color.fromARGB(
-                  255, 13, 116, 13), // Цвет для UpperLesson
-              child: const Icon(Icons.book,
-                  color: Colors.white, size: 32), // Иконка для UpperLesson
+          // Тело секции: уроки или сообщение
+          if (lessons.isEmpty && isEffectivelyUnlocked)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20.0),
+              child: Text("Уроки для этого уровня скоро появятся!", style: TextStyle(color: Colors.grey[700], fontStyle: FontStyle.italic, fontSize: 15)),
+            )
+          else if (!isEffectivelyUnlocked) // Если секция заблокирована
+             Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 10.0),
+              child: Text("Пройдите предыдущий уровень, чтобы открыть эти уроки.", style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.w500, fontSize: 15), textAlign: TextAlign.center,),
+            )
+          else // Если разблокировано и есть уроки
+            Wrap( // Используем Wrap для адаптивного размещения узлов уроков
+              spacing: 12.0, // Горизонтальный отступ между узлами
+              runSpacing: 15.0, // Вертикальный отступ, если узлы переносятся
+              alignment: WrapAlignment.spaceAround, // Чтобы узлы распределялись лучше
+              children: lessons.map((lesson) {
+                final progress = userLessonProgress[lesson.id] ?? 0;
+                // Доступность конкретного узла урока: секция должна быть разблокирована
+                // И уровень пользователя должен быть не ниже требуемого для этого урока
+                // (на случай, если внутри одной секции есть уроки с под-уровнями)
+                bool isLessonNodeAccessible = isEffectivelyUnlocked && 
+                                               (_levelOrderStatic.indexOf(userLevel) >= _levelOrderStatic.indexOf(lesson.requiredLevel));
+                
+                return _AdventureLessonNode(
+                  lesson: lesson,
+                  progress: progress,
+                  isAccessible: isLessonNodeAccessible,
+                  onTap: () => onLessonTap(lesson),
+                  isAdmin: isAdmin,
+                  onDelete: () => onDeleteLesson(lesson),
+                  baseColor: levelColor, // Передаем базовый цвет уровня
+                );
+              }).toList(),
             ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: isAccessible
-                ? onTap
-                : () {
-                    // Если урок не доступен, показываем сообщение
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Урок не доступен на вашем уровне.'),
-                      ),
-                    );
-                  },
-          ),
-          // Отображение прогресса
-          LinearProgressIndicator(
-            value: progress / 100, // Преобразуем прогресс в диапазон от 0 до 1
-            backgroundColor: Colors.grey[300],
-            color: const Color.fromARGB(255, 25, 190, 47),
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              'Прогресс: $progress%', // Отображаем прогресс
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
         ],
       ),
     );
   }
 }
 
-class _AddLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final int progress; // Прогресс
+// ---- ВИДЖЕТ ДЛЯ УЗЛА УРОКА НА КАРТЕ ----
+class _AdventureLessonNode extends StatelessWidget {
+  final Lesson lesson;
+  final int progress;
+  final bool isAccessible;
   final VoidCallback onTap;
+  final bool isAdmin;
+  final VoidCallback onDelete;
+  final Color baseColor; // Базовый цвет, наследуемый от уровня
 
-  const _AddLessonCard({
+  const _AdventureLessonNode({
     Key? key,
-    required this.title,
-    required this.lessonId,
+    required this.lesson,
     required this.progress,
+    required this.isAccessible,
     required this.onTap,
+    required this.isAdmin,
+    required this.onDelete,
+    required this.baseColor,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 4,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                height: 8,
-                child: LinearProgressIndicator(
-                  value: progress / 100,
-                  backgroundColor: Colors.black,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    progress >= 100 ? Colors.green : Colors.yellow,
-                  ),
+    bool isCompleted = progress >= 100;
+    // Цвет узла: зеленый если пройден, базовый цвет уровня если доступен, серый если заблокирован
+    Color activeColor = isCompleted ? Colors.green[600]! : baseColor;
+    Color nodeColor = isAccessible ? activeColor : Colors.grey[400]!;
+    // Иконка узла
+    IconData nodeIconData = isAccessible 
+        ? (isCompleted ? Icons.check_circle_rounded : Icons.stars_rounded) // Звезда для активного, галочка для пройденного
+        : Icons.lock_rounded; // Замок для заблокированного
+
+    // Иконка типа урока (если есть в модели Lesson)
+    IconData lessonTypeIcon = Icons.article_outlined; // Иконка по умолчанию
+    switch (lesson.lessonType.toLowerCase()) {
+      case 'interactive': // Или 'chooseTranslation' как в админке
+      case 'choosetranslation':
+        lessonTypeIcon = Icons.touch_app_rounded; break;
+      case 'audiolesson': lessonTypeIcon = Icons.volume_up_rounded; break;
+      case 'videolesson': lessonTypeIcon = Icons.play_circle_fill_rounded; break;
+      // Добавьте другие типы
+    }
+
+
+    return Opacity(
+      opacity: isAccessible ? 1.0 : 0.65, // Меньшая прозрачность для заблокированных
+      child: Column(
+        mainAxisSize: MainAxisSize.min, // Чтобы колонка занимала минимум места
+        children: [
+          InkWell(
+            onTap: isAccessible ? onTap : null,
+            borderRadius: BorderRadius.circular(35), // Радиус для эффекта нажатия
+            child: Container(
+              width: 70, // Размер узла
+              height: 70,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient( // Градиент для объема
+                  colors: isAccessible 
+                    ? [nodeColor.withOpacity(0.5), nodeColor] 
+                    : [nodeColor.withOpacity(0.3), nodeColor.withOpacity(0.7)],
+                  center: Alignment(0.3, -0.3), // Смещение центра для эффекта света
                 ),
+                border: Border.all(
+                  color: isAccessible ? nodeColor.withOpacity(0.9) : Colors.grey[500]!, 
+                  width: 3
+                ),
+                boxShadow: isAccessible ? [ // Тень только для доступных
+                  BoxShadow(color: nodeColor.withOpacity(0.4), blurRadius: 8, spreadRadius: 0, offset: Offset(2,2))
+                ] : [],
               ),
-              const SizedBox(height: 5),
-              Text(
-                'Прогресс: $progress%',
-                style: const TextStyle(fontSize: 14),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Основная иконка (статус или тип урока)
+                  Icon(isAccessible ? lessonTypeIcon : nodeIconData, color: Colors.white.withOpacity(isAccessible ? 0.9 : 0.6), size: 32),
+                  // Иконка статуса поверх (если урок доступен)
+                  if (isAccessible)
+                    Positioned(
+                      top: 5,
+                      left: 5,
+                      child: Icon(
+                        isCompleted ? Icons.check_circle_outline_rounded : Icons.star_outline, 
+                        color: Colors.white.withOpacity(0.8), 
+                        size: 18
+                      )
+                    ),
+                  // Прогресс, если урок начат, но не завершен
+                  if (isAccessible && progress > 0 && !isCompleted)
+                    Positioned(
+                      bottom: 6,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(4)
+                        ),
+                        child: Text(
+                          "$progress%",
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  // Кнопка удаления для админа
+                  if (isAdmin && isAccessible)
+                    Positioned(
+                      top: -2, // Небольшое смещение для лучшего вида
+                      right: -2,
+                      child: InkWell(
+                        onTap: onDelete,
+                        child: CircleAvatar(
+                          radius: 13, // Размер кнопки удаления
+                          backgroundColor: Colors.redAccent.withOpacity(0.85),
+                          child: Icon(Icons.close_rounded, color: Colors.white, size: 15),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UpperInterLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final bool isAccessible;
-  final int progress; // Поле для прогресса
-  final VoidCallback onTap;
-
-  const _UpperInterLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    this.progress = 0, // Значение по умолчанию
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor: const Color.fromARGB(
-                  255, 19, 167, 44), // Цвет для UpperLesson
-              child: const Icon(Icons.book,
-                  color: Colors.white, size: 32), // Иконка для UpperLesson
             ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: isAccessible
-                ? onTap
-                : () {
-                    // Если урок не доступен, показываем сообщение
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Урок не доступен на вашем уровне.'),
-                      ),
-                    );
-                  },
           ),
-          // Отображение прогресса
-          LinearProgressIndicator(
-            value: progress / 100, // Преобразуем прогресс в диапазон от 0 до 1
-            backgroundColor: Colors.grey[300],
-            color: const Color.fromARGB(255, 25, 190, 47),
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
+          SizedBox(height: 8),
+          // Название урока
+          SizedBox(
+            width: 80, // Ограничиваем ширину текста, чтобы он переносился
             child: Text(
-              'Прогресс: $progress%', // Отображаем прогресс
-              style: const TextStyle(fontSize: 14),
+              lesson.title,
+              textAlign: TextAlign.center,
+              maxLines: 2, // Максимум 2 строки
+              overflow: TextOverflow.ellipsis, // Многоточие, если не помещается
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: isAccessible ? Colors.black.withOpacity(0.75) : Colors.grey[600],
+              ),
             ),
           ),
         ],
@@ -2091,138 +1012,69 @@ class _UpperInterLessonCard extends StatelessWidget {
   }
 }
 
-class _UpperUpInterLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final bool isAccessible;
-  final int progress; // Поле для прогресса
-  final VoidCallback onTap;
-
-  const _UpperUpInterLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    this.progress = 0, // Значение по умолчанию
-  });
+// ---- ВИДЖЕТ ДЛЯ СОЕДИНИТЕЛЬНОЙ ТРОПИНКИ МЕЖДУ УРОВНЯМИ ----
+class _PathConnector extends StatelessWidget {
+  final bool isUnlocked; // Разблокирован ли путь к следующему уровню
+  final Color color; // Цвет пути (обычно цвет следующего уровня)
+  const _PathConnector({Key? key, required this.isUnlocked, required this.color}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor:
-                  Color.fromARGB(255, 19, 167, 44), // Цвет для UpperLesson
-              child: const Icon(Icons.book,
-                  color: Colors.white, size: 32), // Иконка для UpperLesson
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: isAccessible
-                ? onTap
-                : () {
-                    // Если урок не доступен, показываем сообщение
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Урок не доступен на вашем уровне.'),
-                      ),
-                    );
-                  },
-          ),
-          // Отображение прогресса
-          LinearProgressIndicator(
-            value: progress / 100, // Преобразуем прогресс в диапазон от 0 до 1
-            backgroundColor: Colors.grey[300],
-            color: Color.fromARGB(255, 19, 167, 44),
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              'Прогресс: $progress%', // Отображаем прогресс
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-        ],
+    return Container(
+      height: 50, // Высота соединителя
+      alignment: Alignment.center,
+      child: CustomPaint(
+        size: Size(20, 50), // Ширина и высота области рисования
+        painter: _PathPainter(isUnlocked: isUnlocked, pathColor: color),
       ),
     );
   }
 }
 
-class _AdvancedLessonCard extends StatelessWidget {
-  final String title;
-  final String lessonId;
-  final bool isAccessible;
-  final int progress; // Поле для прогресса
-  final VoidCallback onTap;
-
-  const _AdvancedLessonCard({
-    required this.title,
-    required this.lessonId,
-    required this.onTap,
-    required this.isAccessible,
-    this.progress = 0, // Значение по умолчанию
-  });
+class _PathPainter extends CustomPainter {
+  final bool isUnlocked;
+  final Color pathColor;
+  _PathPainter({required this.isUnlocked, required this.pathColor});
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor:
-                  Color.fromARGB(255, 19, 167, 44), // Цвет для UpperLesson
-              child: const Icon(Icons.book,
-                  color: Colors.white, size: 32), // Иконка для UpperLesson
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios),
-            onTap: isAccessible
-                ? onTap
-                : () {
-                    // Если урок не доступен, показываем сообщение
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Урок не доступен на вашем уровне.'),
-                      ),
-                    );
-                  },
-          ),
-          // Отображение прогресса
-          LinearProgressIndicator(
-            value: progress / 100, // Преобразуем прогресс в диапазон от 0 до 1
-            backgroundColor: Colors.grey[300],
-            color: Color.fromARGB(255, 19, 167, 44),
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(
-              'Прогресс: $progress%', // Отображаем прогресс
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-        ],
-      ),
-    );
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = isUnlocked ? pathColor.withOpacity(0.8) : Colors.grey[400]!.withOpacity(0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5 // Толще тропинка
+      ..strokeCap = StrokeCap.round; // Скругленные концы
+
+    if (isUnlocked) {
+      // Сплошная линия для разблокированного пути
+      canvas.drawLine(Offset(size.width / 2, 0), Offset(size.width / 2, size.height), paint);
+    } else {
+      // Пунктирная линия для заблокированного пути
+      double dashHeight = 6;
+      double dashSpace = 4;
+      double startY = 0;
+      while (startY < size.height) {
+        canvas.drawLine(Offset(size.width / 2, startY), Offset(size.width / 2, startY + dashHeight), paint);
+        startY += dashHeight + dashSpace;
+      }
+    }
+    
+    // Рисуем стрелку вниз, если путь разблокирован и есть место
+    if (isUnlocked && size.height > 10) { // Рисуем стрелку только если есть место
+      final arrowPaint = Paint()
+        ..color = pathColor // Цвет стрелки совпадает с цветом пути
+        ..style = PaintingStyle.fill;
+      Path path = Path();
+      double arrowSize = 6; // Размер стрелки
+      // Рисуем треугольник-стрелку
+      path.moveTo(size.width / 2 - arrowSize, size.height - (arrowSize * 1.5)); // Смещаем стрелку чуть выше от нижнего края
+      path.lineTo(size.width / 2 + arrowSize, size.height - (arrowSize * 1.5));
+      path.lineTo(size.width / 2, size.height - (arrowSize * 0.5)); // Вершина стрелки
+      path.close();
+      canvas.drawPath(path, arrowPaint);
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _PathPainter oldDelegate) => 
+    oldDelegate.isUnlocked != isUnlocked || oldDelegate.pathColor != pathColor;
 }

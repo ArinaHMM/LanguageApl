@@ -42,9 +42,12 @@ dependencies:
   url_launcher: ^6.3.0
   provider: ^6.1.2
   http: ^1.2.2
+  cached_network_image: ^3.3.0
   audioplayers: ^6.1.0
   video_player: ^2.9.2
   google_fonts: ^6.1.0
+  flutter_tts: ^3.8.3  
+  # file_picker: ^10.1.9
  
 
 
@@ -82,6 +85,7 @@ flutter:
    - images/background.png
    - images/LingoQuest_logo.png
    - images/LingoQuest_logos.png
+   - images/adventure_background.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

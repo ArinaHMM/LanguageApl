@@ -45,7 +45,7 @@ class _ProfilePageState extends State<ProfilePage> {
         Navigator.pushReplacementNamed(context, '/games');
         break;
       case 2:
-        Navigator.pushReplacementNamed(context, '/notifications');
+        Navigator.pushReplacementNamed(context, '/audioles');
         break;
       case 3:
         Navigator.pushReplacementNamed(context, '/settings');
@@ -387,11 +387,11 @@ class _ProfilePageState extends State<ProfilePage> {
                       icon: Icons.calendar_today_outlined,
                       onEdit: () => _editProfileField('birthDate', _userData?['birthDate'] ?? ''),
                     ),
-                    _InfoCard(
-                      title: "Уровень языка",
-                      value: _userData?['languageLevel'] ?? 'Не указан', // Предполагаем, что поле называется languageLevel
-                      icon: Icons.translate_outlined,
-                    ),
+                    // _InfoCard(
+                    //   title: "Уровень языка",
+                    //   value: _userData?['languageSettings'] ?? 'Не указан', // Предполагаем, что поле называется languageLevel
+                    //   icon: Icons.translate_outlined,
+                    // ),
                     
                     SizedBox(height: screenHeight * 0.03),
                     SizedBox(
@@ -407,6 +407,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
+                    
                   ],
                 ),
               ),

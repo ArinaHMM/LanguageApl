@@ -6,8 +6,8 @@
     <!-- Твоя иконка по центру -->
     <!-- Используй @mipmap/имя_файла_иконки_без_расширения -->
     <item                                                        
-        android:width="650dp"
-        android:height="650dp"                               
+        android:width="240dp"
+        android:height="240dp"                               
         android:gravity="center">                               
         <bitmap                                                 
             android:gravity="fill"

@@ -1,10 +1,12 @@
+// lib/pages/RegistrationPage.dart
+
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_languageapplicationmycourse_2/database/auth/service.dart'; // Убедитесь, что этот сервис вам все еще нужен в таком виде
+// import 'package:flutter_languageapplicationmycourse_2/database/auth/service.dart'; // Если не используется, можно удалить
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
-// import 'package:flutter_languageapplicationmycourse_2/pages/newPages/LanguageLevelTestPage.dart'; // Пока не переходим сюда сразу
+// import 'package:flutter_languageapplicationmycourse_2/pages/SelectLanguagePage.dart'; // Этот импорт будет нужен, когда создадите файл
 import 'package:toast/toast.dart';
 
 class RegistrationPage extends StatefulWidget {
@@ -23,59 +25,27 @@ class _RegistrationPageState extends State<RegistrationPage> {
   DateTime? _selectedDate;
   UsersCollection usersCollection = UsersCollection();
 
-  // Таймер для жизней можно оставить, он не мешает логике регистрации
-  Timer? _timer;
+  Timer? _timer; // Для логики восстановления жизней
 
   @override
   void initState() {
     super.initState();
-    _startLifeRestoreTimer();
+    // Логика _startLifeRestoreTimer() на странице регистрации может быть избыточной,
+    // так как пользователь еще не начал активно использовать жизни.
+    // Рассмотрите перенос этой логики на активную страницу, например, LearnPage.
+    // _startLifeRestoreTimer();
   }
 
-  void _startLifeRestoreTimer() {
-    _timer = Timer.periodic(Duration(minutes: 1), (timer) {
-      _restoreLivesIfNeeded();
-    });
-  }
+  // void _startLifeRestoreTimer() {
+  //   _timer = Timer.periodic(Duration(minutes: 1), (timer) {
+  //     _restoreLivesIfNeeded();
+  //   });
+  // }
 
-  Future<void> _restoreLivesIfNeeded() async {
-    // Эта логика должна срабатывать для ЗАЛОГИНЕННОГО пользователя.
-    // На странице регистрации пользователь еще не залогинен (или только что зарегистрировался).
-    // Возможно, эту логику лучше перенести в главный экран приложения или туда, где пользователь проводит время.
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null && user.emailVerified) { // Добавим проверку на верификацию
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      if (userDoc.exists) {
-        // ... остальная логика восстановления жизней
-        int lives = userDoc['lives'];
-        if (userDoc.data() != null && (userDoc.data() as Map<String, dynamic>).containsKey('lastRestored')) {
-            Timestamp lastRestored = userDoc['lastRestored'];
-            int minutesPassed = DateTime.now().difference(lastRestored.toDate()).inMinutes;
-            if (minutesPassed >= 5 && lives < 5) { // Предположим, максимум 5 жизней
-              lives++;
-              await FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(user.uid)
-                  .update({
-                'lives': lives,
-                'lastRestored': Timestamp.now(),
-              });
-            }
-        } else {
-            // Если lastRestored нет, возможно, это первый раз или ошибка
-            await FirebaseFirestore.instance
-                .collection('users')
-                .doc(user.uid)
-                .update({
-              'lastRestored': Timestamp.now(), // Устанавливаем начальное значение
-            });
-        }
-      }
-    }
-  }
+  // Future<void> _restoreLivesIfNeeded() async {
+  //   // ... (ваша логика) ...
+  //   // Лучше перенести эту логику
+  // }
 
   @override
   void dispose() {
@@ -105,7 +75,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
   }
 
   Future<void> _registerUser() async {
-    // Ваши проверки полей
+    // Ваши проверки полей (оставлены без изменений)
     if (firstNameController.text.isEmpty ||
         lastNameController.text.isEmpty ||
         passwordController.text.isEmpty ||
@@ -144,11 +114,10 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return;
     }
 
-    // Показываем индикатор загрузки
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Center(child: CircularProgressIndicator()),
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
     try {
@@ -161,56 +130,63 @@ class _RegistrationPageState extends State<RegistrationPage> {
       User? user = userCredential.user;
 
       if (user != null) {
-        // ОТПРАВЛЯЕМ ПИСЬМО ДЛЯ ПОДТВЕРЖДЕНИЯ EMAIL
-        await user.sendEmailVerification();
-
+        // --- Начало изменений ---
         String id = user.uid;
 
+        // 1. Отправка письма для верификации (если это ваша стратегия)
+        // Если верификация обязательна ПЕРЕД выбором языка, то после этого нужно перенаправить на /auth
+        // и уже после успешного входа и верификации проверять, выбран ли язык.
+        // Сейчас я предполагаю, что выбор языка идет сразу после регистрации.
+        // await user.sendEmailVerification();
+
+        // 2. Создание базового документа пользователя в Firestore.
+        // НЕ создаем здесь 'languageSettings' или 'languageLevel'.
+        // Это будет сделано на странице выбора языка.
+        // Ваш usersCollection.addUserCollection должен создавать только основные поля.
+        // Адаптируйте его, если он добавляет специфичные для языка поля.
         await usersCollection.addUserCollection(
           id,
           firstNameController.text.trim(),
           lastNameController.text.trim(),
           emailController.text.trim(),
           birthEditingController.text,
-          'Не указан',
-          'Beginner', // Установим начальный уровень, например
+          'Не указан', // Изображение по умолчанию
+          '', // Язык/уровень оставляем пустым или ставим маркер типа 'not_selected'
         );
 
+        // 3. Дополнительно, убедимся, что базовые поля, не зависящие от языка, созданы.
+        // SetOptions(merge: true) поможет, если addUserCollection уже создал какие-то из этих полей.
         await FirebaseFirestore.instance.collection('users').doc(id).set({
           'firstName': firstNameController.text.trim(),
           'lastName': lastNameController.text.trim(),
-          'email': emailController.text.trim(),
+          'email': emailController.text.trim(), // Email уже есть от Auth, но для Firestore полезно
           'birthDate': birthEditingController.text,
-          'profileImageUrl': 'Не указан',
-          'languageLevel': 'Beginner', // Дублируем для консистентности или выбираем один источник правды
-          'lives': 5,
+          'profileImageUrl': 'Не указан', // Или ваше значение по умолчанию
+          'lives': 5, // Начальное количество жизней
           'lastRestored': Timestamp.now(),
-          'progress': 0,
-          'progressel': 0,
-          'progressint': 0,
-          'progressupint': 0,
-          'progressadv': 0,
-          'progressaudio': 0,
           'registrationDate': Timestamp.now(),
-          // 'isEmailVerified': false, // Не обязательно, т.к. FirebaseAuth сам хранит это
+          // Убираем все поля, связанные с прогрессом по конкретным уровням или языком:
+          // 'languageLevel': 'Beginner',
+          // 'progress': 0, 'progressel': 0, и т.д.
         }, SetOptions(merge: true));
 
-        // AuthService().updateUserLastLogin(id); // Пользователь еще не вошел, только зарегистрировался
-
         Navigator.pop(context); // Закрываем индикатор загрузки
 
-        Toast.show(
-            'Регистрация успешна! Мы отправили письмо для подтверждения на ${user.email}. Пожалуйста, подтвердите ваш email и затем войдите.',
-            duration: Toast.lengthLong);
+        // Сообщение пользователю
+        // Если была отправка письма верификации, то здесь может быть другое сообщение.
+        Toast.show('Регистрация успешна!', duration: Toast.lengthLong);
 
-        // Перенаправляем на страницу входа
-        Navigator.popAndPushNamed(context, '/auth');
+        // 4. Перенаправляем на страницу выбора языка.
+        // Используем pushReplacementNamed, чтобы пользователь не мог вернуться на страницу регистрации.
+        Navigator.pushReplacementNamed(context, '/selectLanguage');
+        // --- Конец изменений ---
+
       } else {
-        Navigator.pop(context); // Закрываем индикатор загрузки
+        Navigator.pop(context);
         Toast.show('Не удалось создать пользователя. Попробуйте снова.');
       }
     } on FirebaseAuthException catch (e) {
-      Navigator.pop(context); // Закрываем индикатор загрузки
+      Navigator.pop(context);
       String message;
       switch (e.code) {
         case 'weak-password':
@@ -227,7 +203,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
       }
       Toast.show(message);
     } catch (e) {
-      Navigator.pop(context); // Закрываем индикатор загрузки
+      Navigator.pop(context);
       Toast.show('Произошла неизвестная ошибка. Пожалуйста, попробуйте еще раз.');
       print("Ошибка регистрации: $e");
     }
@@ -235,8 +211,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
   @override
   Widget build(BuildContext context) {
-    ToastContext().init(context);
+    ToastContext().init(context); // Инициализация Toast
     return Scaffold(
+      // ... остальной UI без изменений ...
       backgroundColor: const Color.fromARGB(255, 209, 255, 212),
       body: Center(
         child: SingleChildScrollView(
@@ -283,8 +260,8 @@ class _RegistrationPageState extends State<RegistrationPage> {
               ),
               const SizedBox(height: 24),
               SizedBox(
-                width: MediaQuery.of(context).size.width * 0.7, // Немного увеличил ширину
-                height: 50, // Фиксированная высота
+                width: MediaQuery.of(context).size.width * 0.7,
+                height: 50,
                 child: ElevatedButton(
                   onPressed: _registerUser,
                   style: ElevatedButton.styleFrom(
@@ -314,6 +291,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
   Widget _buildTextField(TextEditingController controller, String label,
       String hint, IconData prefixIcon,
       {bool obscureText = false}) {
+    // ... ваш UI для TextField без изменений ...
     return SizedBox(
       width: MediaQuery.of(context).size.width * 0.9,
       child: TextField(

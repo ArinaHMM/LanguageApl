@@ -14,6 +14,9 @@ import 'package:flutter_languageapplicationmycourse_2/pages/AddLesson/LessonPage
 import 'package:flutter_languageapplicationmycourse_2/pages/NotificationsPages/NotificationPape.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/LoginWithCodePage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/PhoneAuthPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/SelectedLanguagesPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/add_audio.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/add_exercise_page.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/ProfilePage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/SettingsPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/SupportNav.dart';
@@ -40,7 +43,7 @@ final routes = {
   '/reg': (context) => const RegistrationPage(),
   '/profile': (context) => const ProfilePage(),
   '/chat1': (context) => const ChatsPage1(),
-
+  '/selectLanguage': (context) => const SelectLanguagePage(),
   '/settings': (context) => const SettingsPage(),
   '/learn': (context) => LearnPage(), // Главная страница
   '/lesson': (context) => LessonPage(),
@@ -50,17 +53,21 @@ final routes = {
         lessonId: '',
         onProgressUpdated: (int newProgress) {},
       ),
-  '/what': (context) => const LanguageLevelTestPage(
-        userId: '',
-        email: '',
-        firstName: '',
-        lastName: '',
-        birthDate: '',
-      ),
+  // '/what': (context) => const LanguageLevelTestPage(
+  //       userId: '',
+  //       email: '',
+  //       firstName: '',
+  //       lastName: '',
+  //       birthDate: '',
+  //     ),
   '/audiolesson': (context) => AdminAudioLessonPage(),
+  '/newles': (context) => AdminAddInteractiveLessonPage(),
+
   '/audio': (context) => AudioLessonPage(
         lessonId: '',
       ),
+  // '/audioles': (context) => AdminAddAudioWordBankLessonPage(),
+
   '/welcome': (context) => const WelcomePage(),
   '/ani': (context) => const IntroductionPage(),
   '/game': (context) => MemoryGamePage(),
@@ -72,7 +79,7 @@ final routes = {
   '/game2': (context) => HangmanGamePage(),
   '/games': (context) => GamesPage(),
   '/chat': (context) => const ChatsPage(),
-  '/prof1': (context) => const ProfilePage1(),
+  // '/prof1': (context) => const ProfilePage1(),
 
   '/learnadmin': (context) => AdminLearnPage(),
   '/notifications': (context) => NotificationsPage(),

@@ -38,8 +38,8 @@ class ThemeAppMenu extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           title: 'LingoQuest',
           initialRoute: '/splash',
-          theme: AppThemes.lightTheme, // Наша светлая тема
-          darkTheme: AppThemes.darkTheme, // Наша темная тема
+          theme: AppThemes.lightTheme, 
+          darkTheme: AppThemes.darkTheme,
           themeMode: ThemeMode.system,
           routes: routes,
         ));
