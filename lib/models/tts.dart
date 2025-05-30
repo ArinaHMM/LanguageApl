@@ -12,15 +12,15 @@ class TtsService {
   static String _mapLanguageCodeToVoiceRss(String languageCode) {
     switch (languageCode.toLowerCase()) {
       case 'english':
-        return 'en-us'; // Американский английский
+        return 'en-US'; // Американский английский
       case 'spanish':
-        return 'es-es'; // Кастильский испанский
+        return 'es-ES'; // Кастильский испанский
       case 'german':
-        return 'de-de'; // Немецкий
+        return 'de-DE'; // Немецкий
       // Добавьте другие языки, поддерживаемые VoiceRSS и вашим приложением
       // https://www.voicerss.org/api/documentation.aspx (параметр hl)
       default:
-        return 'en-us'; // Фоллбэк
+        return 'en-US'; // Фоллбэк
     }
   }
 

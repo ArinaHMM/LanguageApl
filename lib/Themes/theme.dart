@@ -76,7 +76,7 @@ class AppThemes {
       ),
     ),
 
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 3,
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       shape: RoundedRectangleBorder(
@@ -187,7 +187,7 @@ class AppThemes {
       ),
     ),
 
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 1,
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       shape: RoundedRectangleBorder(

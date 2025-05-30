@@ -1,13 +1,14 @@
 // lib/pages/RegistrationPage.dart
-
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// import 'package:flutter_languageapplicationmycourse_2/database/auth/service.dart'; // Если не используется, можно удалить
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
-// import 'package:flutter_languageapplicationmycourse_2/pages/SelectLanguagePage.dart'; // Этот импорт будет нужен, когда создадите файл
-import 'package:toast/toast.dart';
+// Убедитесь, что путь к toast.dart правильный, если вы его используете.
+// Возможно, вы используете fluttertoast или другую библиотеку.
+// Если это кастомный Toast, убедитесь, что он инициализирован.
+// Для примера я буду использовать SnackBar, так как он встроен во Flutter.
+// import 'package:toast/toast.dart';
 
 class RegistrationPage extends StatefulWidget {
   const RegistrationPage({Key? key}) : super(key: key);
@@ -16,7 +17,10 @@ class RegistrationPage extends StatefulWidget {
   State<RegistrationPage> createState() => _RegistrationPageState();
 }
 
-class _RegistrationPageState extends State<RegistrationPage> {
+class _RegistrationPageState extends State<RegistrationPage>
+    with SingleTickerProviderStateMixin {
+  final _formKey = GlobalKey<FormState>();
+
   TextEditingController firstNameController = TextEditingController();
   TextEditingController lastNameController = TextEditingController();
   TextEditingController emailController = TextEditingController();
@@ -25,31 +29,50 @@ class _RegistrationPageState extends State<RegistrationPage> {
   DateTime? _selectedDate;
   UsersCollection usersCollection = UsersCollection();
 
-  Timer? _timer; // Для логики восстановления жизней
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  // Объявляем контроллер и анимации, но не инициализируем здесь
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  final Color primaryOrange = const Color.fromARGB(255, 255, 132, 49);
+  final Color accentOrange = const Color.fromARGB(255, 255, 160, 90);
+  final Color darkOrange = const Color.fromARGB(255, 230, 100, 20);
+  // ... остальные цвета ...
 
   @override
   void initState() {
     super.initState();
-    // Логика _startLifeRestoreTimer() на странице регистрации может быть избыточной,
-    // так как пользователь еще не начал активно использовать жизни.
-    // Рассмотрите перенос этой логики на активную страницу, например, LearnPage.
-    // _startLifeRestoreTimer();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+
+    // --- ИНИЦИАЛИЗАЦИЯ АНИМАЦИЙ ПЕРЕНЕСЕНА СЮДА ---
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeIn,
+      ),
+    );
+
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.elasticOut,
+      ),
+    );
+    // --- КОНЕЦ ИНИЦИАЛИЗАЦИИ АНИМАЦИЙ ---
+
+    _animationController.forward();
   }
-
-  // void _startLifeRestoreTimer() {
-  //   _timer = Timer.periodic(Duration(minutes: 1), (timer) {
-  //     _restoreLivesIfNeeded();
-  //   });
-  // }
-
-  // Future<void> _restoreLivesIfNeeded() async {
-  //   // ... (ваша логика) ...
-  //   // Лучше перенести эту логику
-  // }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _animationController.dispose();
     firstNameController.dispose();
     lastNameController.dispose();
     emailController.dispose();
@@ -61,45 +84,57 @@ class _RegistrationPageState extends State<RegistrationPage> {
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _selectedDate ??
+          DateTime.now().subtract(
+              const Duration(days: 365 * 18)), // Начальная дата - 18 лет назад
       firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+      lastDate: DateTime.now().subtract(
+          const Duration(days: 365 * 6)), // Минимальный возраст - 6 лет
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: ColorScheme.light(
+              primary: primaryOrange, // Цвет шапки DatePicker
+              onPrimary: Colors.white, // Цвет текста на шапке
+            ),
+            buttonTheme:
+                const ButtonThemeData(textTheme: ButtonTextTheme.primary),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null && picked != _selectedDate) {
       setState(() {
         _selectedDate = picked;
         birthEditingController.text =
-            "${picked.day}/${picked.month}/${picked.year}";
+            "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
       });
     }
   }
 
+  void _showSnackBar(String message, {bool isError = true}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _registerUser() async {
-    // Ваши проверки полей (оставлены без изменений)
-    if (firstNameController.text.isEmpty ||
-        lastNameController.text.isEmpty ||
-        passwordController.text.isEmpty ||
-        emailController.text.isEmpty ||
-        birthEditingController.text.isEmpty) {
-      Toast.show('Заполните все поля');
+    if (!_formKey.currentState!.validate()) {
+      // Используем FormKey для валидации
       return;
     }
-    if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$').hasMatch(firstNameController.text)) {
-      Toast.show('Имя может содержать только буквы');
-      return;
-    }
-    if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$').hasMatch(lastNameController.text)) {
-      Toast.show('Фамилия может содержать только буквы');
-      return;
-    }
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(emailController.text)) {
-      Toast.show('Введите корректный email');
-      return;
-    }
+    // Проверка даты рождения, если она не часть Form
     if (_selectedDate == null) {
-      Toast.show('Выберите дату рождения');
+      _showSnackBar('Пожалуйста, выберите дату рождения.');
       return;
     }
+
+    // Дополнительная проверка возраста (уже есть в вашем коде, но здесь для полноты)
     int age = DateTime.now().year - _selectedDate!.year;
     if (DateTime.now().month < _selectedDate!.month ||
         (DateTime.now().month == _selectedDate!.month &&
@@ -107,18 +142,16 @@ class _RegistrationPageState extends State<RegistrationPage> {
       age--;
     }
     if (age < 6) {
-      Toast.show('Вы должны быть старше 6 лет');
+      _showSnackBar('Вы должны быть старше 6 лет.');
       return;
     } else if (age > 100) {
-      Toast.show('Вы не можете быть старше 100 лет');
+      _showSnackBar('Пожалуйста, укажите корректный возраст (до 100 лет).');
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
+    setState(() {
+      _isLoading = true;
+    });
 
     try {
       UserCredential userCredential =
@@ -130,192 +163,342 @@ class _RegistrationPageState extends State<RegistrationPage> {
       User? user = userCredential.user;
 
       if (user != null) {
-        // --- Начало изменений ---
         String id = user.uid;
-
-        // 1. Отправка письма для верификации (если это ваша стратегия)
-        // Если верификация обязательна ПЕРЕД выбором языка, то после этого нужно перенаправить на /auth
-        // и уже после успешного входа и верификации проверять, выбран ли язык.
-        // Сейчас я предполагаю, что выбор языка идет сразу после регистрации.
+        // Опционально: отправить письмо для верификации
         // await user.sendEmailVerification();
+        // _showSnackBar('Письмо для подтверждения отправлено на ваш email.', isError: false);
 
-        // 2. Создание базового документа пользователя в Firestore.
-        // НЕ создаем здесь 'languageSettings' или 'languageLevel'.
-        // Это будет сделано на странице выбора языка.
-        // Ваш usersCollection.addUserCollection должен создавать только основные поля.
-        // Адаптируйте его, если он добавляет специфичные для языка поля.
+        // Создание документа пользователя в Firestore
+        // Адаптируйте usersCollection.addUserCollection, чтобы он не добавлял языковые поля
         await usersCollection.addUserCollection(
           id,
           firstNameController.text.trim(),
           lastNameController.text.trim(),
           emailController.text.trim(),
           birthEditingController.text,
-          'Не указан', // Изображение по умолчанию
-          '', // Язык/уровень оставляем пустым или ставим маркер типа 'not_selected'
+          'default_avatar.png', // Стандартный аватар или ссылка на него
+          '', // Язык оставляем пустым
         );
 
-        // 3. Дополнительно, убедимся, что базовые поля, не зависящие от языка, созданы.
-        // SetOptions(merge: true) поможет, если addUserCollection уже создал какие-то из этих полей.
+        // Добавление/обновление основных полей пользователя, не зависящих от языка
         await FirebaseFirestore.instance.collection('users').doc(id).set({
           'firstName': firstNameController.text.trim(),
           'lastName': lastNameController.text.trim(),
-          'email': emailController.text.trim(), // Email уже есть от Auth, но для Firestore полезно
+          'email': emailController.text.trim(),
           'birthDate': birthEditingController.text,
-          'profileImageUrl': 'Не указан', // Или ваше значение по умолчанию
-          'lives': 5, // Начальное количество жизней
+          'profileImageUrl': 'default_avatar.png', // Убедитесь, что ассет есть
+          'lives': 5,
           'lastRestored': Timestamp.now(),
           'registrationDate': Timestamp.now(),
-          // Убираем все поля, связанные с прогрессом по конкретным уровням или языком:
-          // 'languageLevel': 'Beginner',
-          // 'progress': 0, 'progressel': 0, и т.д.
+          'selectedLanguage': null, // Явно указываем, что язык не выбран
+          'languageLevel': null, // Уровень тоже не выбран
         }, SetOptions(merge: true));
 
-        Navigator.pop(context); // Закрываем индикатор загрузки
-
-        // Сообщение пользователю
-        // Если была отправка письма верификации, то здесь может быть другое сообщение.
-        Toast.show('Регистрация успешна!', duration: Toast.lengthLong);
-
-        // 4. Перенаправляем на страницу выбора языка.
-        // Используем pushReplacementNamed, чтобы пользователь не мог вернуться на страницу регистрации.
-        Navigator.pushReplacementNamed(context, '/selectLanguage');
-        // --- Конец изменений ---
-
+        if (mounted) {
+          _showSnackBar('Регистрация успешна!', isError: false);
+          // Перенаправляем на страницу выбора языка, заменяя текущий маршрут
+          Navigator.pushReplacementNamed(context, '/selectLanguage');
+        }
       } else {
-        Navigator.pop(context);
-        Toast.show('Не удалось создать пользователя. Попробуйте снова.');
+        if (mounted)
+          _showSnackBar('Не удалось создать пользователя. Попробуйте снова.');
       }
     } on FirebaseAuthException catch (e) {
-      Navigator.pop(context);
       String message;
       switch (e.code) {
         case 'weak-password':
-          message = 'Пароль слишком простой.';
+          message = 'Пароль слишком простой. Минимальная длина - 6 символов.';
           break;
         case 'email-already-in-use':
-          message = 'Аккаунт с такой электронной почтой уже существует.';
+          message = 'Аккаунт с такой почтой уже существует.';
           break;
         case 'invalid-email':
           message = 'Неверный адрес электронной почты.';
           break;
         default:
-          message = 'Произошла ошибка регистрации: ${e.message}';
+          message = 'Ошибка регистрации: ${e.message}';
       }
-      Toast.show(message);
+      if (mounted) _showSnackBar(message);
     } catch (e) {
-      Navigator.pop(context);
-      Toast.show('Произошла неизвестная ошибка. Пожалуйста, попробуйте еще раз.');
-      print("Ошибка регистрации: $e");
+      if (mounted) {
+        _showSnackBar(
+            'Произошла неизвестная ошибка. Пожалуйста, попробуйте еще раз.');
+        print("Ошибка регистрации: $e");
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    ToastContext().init(context); // Инициализация Toast
+    final screenHeight = MediaQuery.of(context).size.height;
+    // ToastContext().init(context); // Заменено на SnackBar
+
     return Scaffold(
-      // ... остальной UI без изменений ...
-      backgroundColor: const Color.fromARGB(255, 209, 255, 212),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                "images/LingoQuest_logo.png",
-                height: MediaQuery.of(context).size.height * 0.1,
-              ),
-              const SizedBox(height: 20),
-              _buildTextField(firstNameController, 'Имя', 'Имя', Icons.person),
-              const SizedBox(height: 16),
-              _buildTextField(lastNameController, 'Фамилия', 'Фамилия', Icons.person_4_outlined),
-              const SizedBox(height: 16),
-              _buildTextField(emailController, 'Email', 'Email', Icons.email),
-              const SizedBox(height: 16),
-              _buildTextField(passwordController, 'Пароль', 'Пароль', Icons.password, obscureText: true),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: MediaQuery.of(context).size.width * 0.9,
-                child: TextField(
-                  controller: birthEditingController,
-                  readOnly: true,
-                  onTap: () => _selectDate(context),
-                  decoration: const InputDecoration(
-                    labelText: 'Дата рождения',
-                    hintText: 'Выберите дату рождения',
-                    prefixIcon: Icon(Icons.calendar_today),
-                    border: OutlineInputBorder(),
-                     focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                          color: Color.fromARGB(255, 4, 104, 43),
-                          width: 2.0),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                          color: Color.fromARGB(255, 4, 104, 43),
-                          width: 1.0),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [accentOrange, primaryOrange],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: Card(
+                  elevation: 8.0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20.0)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize
+                            .min, // Чтобы карточка не растягивалась на весь экран
+                        children: [
+                          Image.asset(
+                            "images/LingoQuest_logo.png", // Убедитесь, что логотип есть
+                            height: screenHeight * 0.08,
+                          ),
+                          SizedBox(height: screenHeight * 0.02),
+                          Text(
+                            "Создать аккаунт",
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                              color: darkOrange,
+                            ),
+                          ),
+                          SizedBox(height: screenHeight * 0.03),
+                          _buildTextFormField(
+                            controller: firstNameController,
+                            labelText: 'Имя',
+                            hintText: 'Введите ваше имя',
+                            prefixIcon: Icons.person_outline,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Пожалуйста, введите имя.';
+                              }
+                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$')
+                                  .hasMatch(value)) {
+                                return 'Имя может содержать только буквы.';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: screenHeight * 0.02),
+                          _buildTextFormField(
+                            controller: lastNameController,
+                            labelText: 'Фамилия',
+                            hintText: 'Введите вашу фамилию',
+                            prefixIcon: Icons.person_search_outlined,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Пожалуйста, введите фамилию.';
+                              }
+                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$')
+                                  .hasMatch(value)) {
+                                return 'Фамилия может содержать только буквы.';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: screenHeight * 0.02),
+                          _buildTextFormField(
+                            controller: emailController,
+                            labelText: 'Почта',
+                            hintText: 'example@mail.com',
+                            prefixIcon: Icons.email_outlined,
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Пожалуйста, введите email.';
+                              }
+                              if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$')
+                                  .hasMatch(value)) {
+                                return 'Введите корректный email.';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: screenHeight * 0.02),
+                          _buildTextFormField(
+                            controller: passwordController,
+                            labelText: 'Пароль',
+                            hintText: 'Минимум 6 символов',
+                            prefixIcon: Icons.lock_outline,
+                            obscureText: _obscurePassword,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                color: primaryOrange,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Пожалуйста, введите пароль.';
+                              }
+                              if (value.length < 6) {
+                                return 'Пароль должен быть не менее 6 символов.';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: screenHeight * 0.02),
+                          TextFormField(
+                            // Используем TextFormField для валидации
+                            controller: birthEditingController,
+                            readOnly: true,
+                            onTap: () => _selectDate(context),
+                            decoration: InputDecoration(
+                              labelText: 'Дата рождения',
+                              hintText: 'Выберите дату',
+                              prefixIcon: Icon(Icons.calendar_today_outlined,
+                                  color: primaryOrange),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12.0),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12.0),
+                                borderSide: BorderSide(
+                                    color: primaryOrange, width: 2.0),
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Пожалуйста, выберите дату рождения.';
+                              }
+                              // Дополнительная проверка возраста уже есть в _registerUser
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: screenHeight * 0.04),
+                          _isLoading
+                              ? CircularProgressIndicator(color: primaryOrange)
+                              : SizedBox(
+                                  width: double.infinity,
+                                  height: 50,
+                                  child: ElevatedButton(
+                                    onPressed: _registerUser,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: primaryOrange,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(12.0),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 14),
+                                      textStyle: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    child: const Text("Зарегистрироваться"),
+                                  ),
+                                ),
+                          SizedBox(height: screenHeight * 0.02),
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    Navigator.popAndPushNamed(context, '/auth');
+                                  },
+                            child: Text(
+                              "Уже есть аккаунт? Войти",
+                              style: TextStyle(
+                                color: darkOrange,
+                                fontWeight: FontWeight.w600,
+                                // decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: MediaQuery.of(context).size.width * 0.7,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _registerUser,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 4, 104, 43),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text("Зарегистрироваться", style: TextStyle(fontSize: 16)),
-                ),
-              ),
-              const SizedBox(height: 20),
-              InkWell(
-                child: const Text(
-                  "Есть аккаунт? Войти",
-                  style: TextStyle(color: Colors.black, decoration: TextDecoration.underline),
-                ),
-                onTap: () => Navigator.popAndPushNamed(context, '/auth'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String label,
-      String hint, IconData prefixIcon,
-      {bool obscureText = false}) {
-    // ... ваш UI для TextField без изменений ...
-    return SizedBox(
-      width: MediaQuery.of(context).size.width * 0.9,
-      child: TextField(
-        controller: controller,
-        obscureText: obscureText,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          prefixIcon: Icon(prefixIcon, color: Color.fromARGB(255, 4, 104, 43)),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(
-                color: const Color.fromARGB(255, 4, 104, 43),
-                width: 2.0),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(
-                color: const Color.fromARGB(255, 4, 104, 43),
-                width: 1.0),
-          ),
+  Widget _buildTextFormField({
+    required TextEditingController controller,
+    required String labelText,
+    required String hintText,
+    required IconData prefixIcon,
+    TextInputType keyboardType = TextInputType.text,
+    bool obscureText = false,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: Icon(prefixIcon, color: primaryOrange),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: Colors.grey[100], // Светлый фон для поля
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide.none, // Без видимой границы по умолчанию
         ),
+        enabledBorder: OutlineInputBorder(
+          // Граница, когда поле не в фокусе
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          // Граница, когда поле в фокусе
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide(color: primaryOrange, width: 2.0),
+        ),
+        errorBorder: OutlineInputBorder(
+          // Граница при ошибке
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide(color: Colors.redAccent, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          // Граница при ошибке и в фокусе
+          borderRadius: BorderRadius.circular(12.0),
+          borderSide: BorderSide(color: Colors.redAccent, width: 2.0),
+        ),
+        labelStyle: TextStyle(color: Colors.grey[700]),
+        hintStyle: TextStyle(color: Colors.grey[500]),
       ),
+      validator: validator,
+      textInputAction:
+          TextInputAction.next, // Переход на следующее поле по кнопке "Далее"
     );
   }
 }

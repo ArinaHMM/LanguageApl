@@ -12,7 +12,12 @@
           "package_name": "com.example.flutter_language_apl_1"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "343134865969-hjhh7ti00b8ijm7gjhb3vqf4nhkvdhc7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM"
@@ -20,7 +25,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "343134865969-hjhh7ti00b8ijm7gjhb3vqf4nhkvdhc7.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "343134865969-hgl5krnger7mhb9a9mhtd8mcd7vfnjq3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterLanguageapplicationmycourse2"
+              }
+            }
+          ]
         }
       }
     },
@@ -31,7 +48,12 @@
           "package_name": "com.example.flutter_languageapplicationmycourse_2"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "343134865969-hjhh7ti00b8ijm7gjhb3vqf4nhkvdhc7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM"
@@ -39,7 +61,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "343134865969-hjhh7ti00b8ijm7gjhb3vqf4nhkvdhc7.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "343134865969-hgl5krnger7mhb9a9mhtd8mcd7vfnjq3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterLanguageapplicationmycourse2"
+              }
+            }
+          ]
         }
       }
     }

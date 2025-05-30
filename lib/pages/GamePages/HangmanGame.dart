@@ -1,123 +1,253 @@
+// lib/pages/GamePages/HangmanGame.dart
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
 
+import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/hang.dart';
+
 class HangmanGamePage extends StatefulWidget {
+  final String languageCode;
+
+  const HangmanGamePage({Key? key, required this.languageCode})
+      : super(key: key);
+
   @override
   _HangmanGamePageState createState() => _HangmanGamePageState();
 }
 
-class _HangmanGamePageState extends State<HangmanGamePage> {
-  String selectedWord = '';
-  List<String> displayedWord = [];
+class _HangmanGamePageState extends State<HangmanGamePage>
+    with TickerProviderStateMixin {
+  // TickerProviderStateMixin для нескольких контроллеров
+  // --- Цвета и стили ---
+  final Color appBarColor =
+      const Color.fromARGB(255, 255, 130, 29); // Глубокий фиолетовый
+  final Color backgroundColor =
+      const Color(0xFFF3E5F5); // Очень светлый лавандовый
+  final Color correctLetterColor = Colors.green.shade600;
+  final Color incorrectLetterColor = Colors.red.shade600;
+  final Color buttonColor = const Color.fromARGB(255, 238, 118, 49); // Средний фиолетовый
+  final Color buttonHoverColor = const Color.fromARGB(255, 250, 145, 47);
+  final Color disabledButtonColor = Colors.grey.shade400;
+  final Color hangmanStructureColor =
+      const Color(0xFF6D4C41); // Темно-коричневый
+  final Color hangmanBodyColor = const Color(0xFF546E7A); // Сине-серый
+
+  final TextStyle feedbackTextStyle =
+      const TextStyle(fontSize: 24, fontWeight: FontWeight.bold);
+  final TextStyle wordDisplayTextStyle = const TextStyle(
+      fontSize: 34,
+      letterSpacing: 7,
+      fontWeight: FontWeight.bold,
+      color: Color(0xFF311B92));
+  final TextStyle attemptsTextStyle = const TextStyle(
+      fontSize: 17, color: Color(0xFF4A148C), fontWeight: FontWeight.w500);
+  final TextStyle gameOverMessageStyle = const TextStyle(
+      fontSize: 18, color: Color(0xFF4A148C), fontWeight: FontWeight.w500);
+  // ---------------------
+
+  String currentWord = "";
   List<String> guessedLetters = [];
-  int remainingAttempts = 10; // Увеличили количество попыток
-  bool isLoading = true;
-  bool hasMadeFirstError = false;
+  int incorrectGuesses = 0;
+  final int maxIncorrectGuesses = 7; // Совпадает с этапами в HangmanPainter
+
+  final Map<String, List<String>> _wordsByLanguage = {
+    'english': [
+      'FLUTTER',
+      'DEVELOPER',
+      'WIDGET',
+      'MOBILE',
+      'ANDROID',
+      'PROJECT',
+      'KEYBOARD',
+      'LANGUAGE',
+      'CHALLENGE',
+      'PLATFORM'
+    ],
+    'spanish': [
+      'PROGRAMA',
+      'VENTANA',
+      'JUEGO',
+      'AMIGO',
+      'FLORES',
+      'IDIOMA',
+      'PALABRA',
+      'APRENDER',
+      'DESAFIO',
+      'IDIOMAS'
+    ],
+    'german': [
+      'ENTWICKLER',
+      'TASTATUR',
+      'BILDSCHIRM',
+      'APFELSAFT',
+      'FREUNDE',
+      'SPRACHE',
+      'WÖRTERBUCH',
+      'HERAUSFORDERUNG',
+      'PLATTFORM'
+    ],
+  };
+  List<String> currentLanguageWords = [];
+
+  late AnimationController _wordFeedbackAnimationController;
+  late Animation<double> _wordFeedbackScaleAnimation;
+  late AnimationController
+      _hangmanDrawingController; // Для плавной отрисовки виселицы
+
+  final Map<String, String> _alphabets = {
+    'english': 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    'spanish': 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ',
+    'german': 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜẞ',
+  };
+  String get currentAlphabet =>
+      _alphabets[widget.languageCode] ?? _alphabets['english']!;
 
   @override
   void initState() {
     super.initState();
-    _fetchRandomWordFromFirestore();
+    currentLanguageWords = List<String>.from(
+        _wordsByLanguage[widget.languageCode] ?? _wordsByLanguage['english']!);
+
+    _wordFeedbackAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _wordFeedbackScaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+          parent: _wordFeedbackAnimationController, curve: Curves.elasticOut),
+    );
+
+    _hangmanDrawingController = AnimationController(
+      vsync: this,
+      duration: const Duration(
+          milliseconds: 300), // Длительность анимации для одной части
+    );
+
+    _startNewGame();
   }
 
-  Future<void> _fetchRandomWordFromFirestore() async {
-    try {
-      final snapshot =
-          await FirebaseFirestore.instance.collection('hangman').get();
-      if (snapshot.docs.isNotEmpty) {
-        var randomDoc = snapshot.docs[Random().nextInt(snapshot.docs.length)];
-        selectedWord = randomDoc['word'] as String;
+  @override
+  void dispose() {
+    _wordFeedbackAnimationController.dispose();
+    _hangmanDrawingController.dispose();
+    super.dispose();
+  }
 
-        print("Загаданное слово: $selectedWord");
-
-        displayedWord = List.filled(selectedWord.length, '_');
-        guessedLetters.clear();
-        remainingAttempts = 10; // Сброс количества попыток
-        hasMadeFirstError = false; // Сброс флага при новой игре
-        setState(() {
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Нет слов в коллекции "hangman"'),
-        ));
-      }
-    } catch (e) {
-      print("Ошибка при получении данных: $e");
-      setState(() {
-        isLoading = false;
-      });
+  void _startNewGame() {
+    if (currentLanguageWords.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Нет слов для языка ${widget.languageCode}'),
+            backgroundColor: Colors.redAccent),
+      );
+      if (Navigator.canPop(context)) Navigator.of(context).pop();
+      return;
     }
+    final randomIndex = Random().nextInt(currentLanguageWords.length);
+    setState(() {
+      currentWord = currentLanguageWords[randomIndex].toUpperCase();
+      guessedLetters = [];
+      incorrectGuesses = 0;
+      _hangmanDrawingController.value = 0; // Сброс анимации виселицы на начало
+      _wordFeedbackAnimationController.reset();
+    });
   }
+
+  String get displayWord {
+    if (currentWord.isEmpty) return "";
+    return currentWord.split('').map((letter) {
+      return guessedLetters.contains(letter) ? letter : '_';
+    }).join(' ');
+  }
+
+  bool get isGameWon => currentWord.isNotEmpty && !displayWord.contains('_');
+  bool get isGameOver => incorrectGuesses >= maxIncorrectGuesses || isGameWon;
 
   void _guessLetter(String letter) {
-    if (guessedLetters.contains(letter) || remainingAttempts <= 0) return;
+    if (isGameOver || guessedLetters.contains(letter.toUpperCase())) return;
+
+    final upperCaseLetter = letter.toUpperCase();
+    bool correctGuess = currentWord.contains(upperCaseLetter);
 
     setState(() {
-      guessedLetters.add(letter);
-
-      if (!selectedWord.contains(letter)) {
-        remainingAttempts--;
-        // Устанавливаем флаг, если это первая ошибка
-        if (!hasMadeFirstError) {
-          hasMadeFirstError = true;
-        }
+      guessedLetters.add(upperCaseLetter);
+      if (!correctGuess) {
+        incorrectGuesses++;
+        // Анимируем к следующему состоянию виселицы
+        double targetProgress = incorrectGuesses / maxIncorrectGuesses;
+        _hangmanDrawingController.animateTo(targetProgress.clamp(0.0, 1.0));
       } else {
-        for (int i = 0; i < selectedWord.length; i++) {
-          if (selectedWord[i] == letter) {
-            displayedWord[i] = letter;
-          }
-        }
+        _wordFeedbackAnimationController.forward(from: 0.0);
       }
     });
 
-    print("Угаданные буквы: $guessedLetters");
-    print("Текущее состояние слова: ${displayedWord.join(' ')}");
-    print("Осталось попыток: $remainingAttempts");
-
-    // Проверка на окончание игры
-    if (isGameFinished) {
-      if (remainingAttempts <= 0) {
-        _showGameOverDialog(); // Показать диалог о проигрыше
-      }
+    if (isGameOver) {
+      _showGameEndDialog();
     }
   }
 
-  bool get isGameFinished =>
-      displayedWord.join() == selectedWord || remainingAttempts <= 0;
-
-  void _showGameOverDialog() {
+  void _showGameEndDialog() {
+    if (!mounted) return;
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
-          title: Text(
-            'Игра окончена',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 30),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(
+                  isGameWon
+                      ? Icons.celebration_rounded
+                      : Icons.sentiment_very_dissatisfied_rounded,
+                  color: isGameWon ? correctLetterColor : incorrectLetterColor,
+                  size: 30),
+              const SizedBox(width: 10),
+              Text(isGameWon ? 'Победа!' : 'Игра окончена',
+                  style: TextStyle(
+                      color:
+                          isGameWon ? correctLetterColor : incorrectLetterColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22)),
+            ],
           ),
-          content: Text(
-              textAlign: TextAlign.center,
-              'Слово: $selectedWord',
-              style: TextStyle(
-                color: Color.fromARGB(255, 9, 121, 9),
-                fontSize: 30,
-              )),
-          actions: [
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                  isGameWon
+                      ? 'Отлично! Вы угадали слово:'
+                      : 'Увы! Загаданное слово было:',
+                  style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 8),
+              Center(
+                  child: Text(currentWord,
+                      style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2))),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: <Widget>[
             TextButton(
-              style: TextButton.styleFrom(alignment: Alignment.bottomCenter),
+              child: Text('В меню игр',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 15)),
               onPressed: () {
-                Navigator.of(context).pop();
-                _fetchRandomWordFromFirestore(); // Начать новую игру
+                Navigator.of(dialogContext).pop();
+                if (Navigator.canPop(context)) Navigator.of(context).pop();
               },
-              child: Text(
-                'Новая игра',
-                textAlign: TextAlign.center,
-              ),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Играть снова', style: TextStyle(fontSize: 15)),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: appBarColor, foregroundColor: Colors.white),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _startNewGame();
+              },
             ),
           ],
         );
@@ -125,156 +255,178 @@ class _HangmanGamePageState extends State<HangmanGamePage> {
     );
   }
 
+  Widget _buildHangmanDisplay() {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.33,
+      constraints: const BoxConstraints(minHeight: 180, maxHeight: 280),
+      decoration: BoxDecoration(
+          // color: Colors.white.withOpacity(0.5),
+          // borderRadius: BorderRadius.circular(12),
+          ),
+      child: CustomPaint(
+        // Используем значение контроллера анимации для плавной отрисовки
+        painter: HangmanPainter(
+          errors: (_hangmanDrawingController.value * maxIncorrectGuesses)
+              .round()
+              .clamp(0, maxIncorrectGuesses),
+          maxErrors: maxIncorrectGuesses,
+          lineColor: hangmanStructureColor,
+          bodyColor: hangmanBodyColor,
+          strokeWidth: 4.5, // Чуть толще линии
+        ),
+        size: Size.infinite,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String langDisplayName =
+        _languageOptions[widget.languageCode] ?? widget.languageCode;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final keyboardPadding = screenWidth > 500 ? (screenWidth - 500) / 2 : 8.0;
+
     return Scaffold(
-    appBar: AppBar(
-        title: Text('Виселица'),
-        backgroundColor: Colors.green,
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        title: Text('Виселица: $langDisplayName',
+            style: const TextStyle(
+                fontWeight: FontWeight.bold, color: Colors.white)),
+        backgroundColor: appBarColor,
+        elevation: 2,
+        centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: isLoading
-            ? Center(child: CircularProgressIndicator())
-            : Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CustomPaint(
-                    size: Size(200, 200),
-                    painter:
-                        HangmanPainter(remainingAttempts, hasMadeFirstError),
-                  ),
-                  SizedBox(height: 20),
-                  Text(
-                    displayedWord.join(' '),
-                    style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 20),
-                  Text('Попытки: $remainingAttempts'),
-                  SizedBox(height: 20),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: _buildAlphabetKeyboard(),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 16.0),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                _buildHangmanDisplay(),
+                const SizedBox(height: 24),
+                ScaleTransition(
+                  scale: _wordFeedbackScaleAnimation,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3))
+                        ]),
+                    child: Text(
+                      displayWord,
+                      style: wordDisplayTextStyle,
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                ],
-              ),
-      ),
-    );
-  }
-
-  Widget _buildAlphabetKeyboard() {
-    const String alphabet = 'qwertyuiopasdfghjklzxcvbnm';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 15.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Wrap(
-            spacing: 6.0,
-            runSpacing: 6.0,
-            alignment: WrapAlignment.center,
-            children: _buildAlphabetButtons(alphabet),
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildAlphabetButtons(String alphabet) {
-    List<Widget> buttons = [];
-    for (String letter in alphabet.split('')) {
-      buttons.add(
-        ElevatedButton(
-          onPressed: () {
-            _guessLetter(letter);
-          },
-          child: Text(
-            letter,
-            style: TextStyle(fontSize: 16),
-          ),
-          style: ElevatedButton.styleFrom(
-            padding: EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
-            backgroundColor: guessedLetters.contains(letter)
-                ? Color.fromRGBO(137, 182, 128, 1)
-                : Color.fromARGB(255, 8, 134, 4),
-            foregroundColor: Colors.white,
+                ),
+                const SizedBox(height: 18),
+                Text('Ошибок: $incorrectGuesses / $maxIncorrectGuesses',
+                    style: attemptsTextStyle),
+                const SizedBox(height: 28),
+                if (isGameOver)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 25.0),
+                    child: Column(
+                      children: [
+                        Text(
+                          isGameWon ? '🎉 ПОБЕДА! 🎉' : 'ПОРАЖЕНИЕ',
+                          style: feedbackTextStyle.copyWith(
+                              color: isGameWon
+                                  ? correctLetterColor
+                                  : incorrectLetterColor),
+                          textAlign: TextAlign.center,
+                        ),
+                        if (!isGameWon) const SizedBox(height: 8),
+                        if (!isGameWon)
+                          Text('Слово было: $currentWord',
+                              style: gameOverMessageStyle),
+                        const SizedBox(height: 25),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Играть снова'),
+                          onPressed: _startNewGame,
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: buttonColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 35, vertical: 15),
+                              textStyle: const TextStyle(
+                                  fontSize: 17, fontWeight: FontWeight.w600),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10))),
+                        )
+                      ],
+                    ),
+                  )
+                else
+                  Padding(
+                    // Отступы для клавиатуры
+                    padding: EdgeInsets.symmetric(horizontal: keyboardPadding),
+                    child: Container(
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.shade50.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Wrap(
+                        spacing: 9.0, // Расстояние между кнопками
+                        runSpacing: 9.0,
+                        alignment: WrapAlignment.center,
+                        children: currentAlphabet.split('').map((letter) {
+                          final bool alreadyGuessed =
+                              guessedLetters.contains(letter);
+                          final bool isCorrectIfGuessed =
+                              currentWord.contains(letter);
+                          return SizedBox(
+                            // Обертка для фиксированного размера кнопок
+                            width: 46, height: 46,
+                            child: ElevatedButton(
+                              onPressed: alreadyGuessed || isGameOver
+                                  ? null
+                                  : () => _guessLetter(letter),
+                              child: Text(letter,
+                                  style: const TextStyle(
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: alreadyGuessed
+                                    ? (isCorrectIfGuessed
+                                        ? correctLetterColor.withOpacity(0.65)
+                                        : incorrectLetterColor
+                                            .withOpacity(0.65))
+                                    : buttonColor,
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8)),
+                                elevation: 2,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-      );
-    }
-    return buttons;
-  }
-}
-
-class HangmanPainter extends CustomPainter {
-  final int remainingAttempts;
-  final bool hasMadeFirstError;
-
-  HangmanPainter(this.remainingAttempts, this.hasMadeFirstError);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    Paint paint = Paint()
-      ..color = Colors.black
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 5.0;
-
-    // Рисуем основание
-    if (hasMadeFirstError) {
-      canvas.drawLine(Offset(size.width * 0.2, size.height),
-          Offset(size.width * 0.8, size.height), paint);
-    }
-
-    // Рисуем перекладину
-    if (hasMadeFirstError && remainingAttempts < 10) {
-      canvas.drawLine(Offset(size.width * 0.5, size.height),
-          Offset(size.width * 0.5, size.height * 0.33), paint);
-    }
-
-    // Рисуем вертикальную часть для виселицы
-    if (hasMadeFirstError && remainingAttempts < 9) {
-      canvas.drawLine(Offset(size.width * 0.5, size.height * 0.33),
-          Offset(size.width * 0.7, size.height * 0.33), paint);
-    }
-
-    // Рисуем вертикальную часть
-    if (hasMadeFirstError && remainingAttempts < 8) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.75),
-          Offset(size.width * 0.7, size.height * 0.45), paint);
-    }
-
-    // Рисуем части тела в зависимости от оставшихся попыток
-    if (remainingAttempts <= 8) {
-      canvas.drawCircle(
-          Offset(size.width * 0.7, size.height * 0.4), 15, paint); // Голова
-    }
-    if (remainingAttempts <= 6) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.55),
-          Offset(size.width * 0.7, size.height * 0.75), paint); // Тело
-    }
-    if (remainingAttempts <= 4) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.6),
-          Offset(size.width * 0.75, size.height * 0.55), paint); // Правая рука
-    }
-    if (remainingAttempts <= 2) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.6),
-          Offset(size.width * 0.65, size.height * 0.55), paint); // Левая рука
-    }
-    if (remainingAttempts <= 1) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.75),
-          Offset(size.width * 0.75, size.height * 0.8), paint); // Правая нога
-    }
-    if (remainingAttempts <= 0) {
-      canvas.drawLine(Offset(size.width * 0.7, size.height * 0.75),
-          Offset(size.width * 0.65, size.height * 0.8), paint); // Левая нога
-    }
+      ),
+    );
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
-  }
+  final Map<String, String> _languageOptions = {
+    'english': 'Англ.',
+    'german': 'Нем.',
+    'spanish': 'Исп.',
+  };
 }

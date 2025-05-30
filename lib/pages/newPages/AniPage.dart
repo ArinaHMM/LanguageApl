@@ -152,7 +152,7 @@ class _IntroductionPageState extends State<IntroductionPage>
                         ),
                         SizedBox(height: 15),
                         Text(
-                          'Здесь вы сможете выучить английский язык, проходить множество уроков и повышать свой уровень владения языком!',
+                          'Здесь вы сможете выучить разные языки, проходить множество уроков и повышать свой уровень владения языком!',
                           style: TextStyle(
                             fontSize: 18,
                             color: Colors.white,

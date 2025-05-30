@@ -106,7 +106,7 @@ class _SelectLanguagePageState extends State<SelectLanguagePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Выберите язык"),
-        backgroundColor: Colors.green[700],
+        backgroundColor: const Color.fromARGB(255, 224, 140, 13),
         automaticallyImplyLeading: false, // Пользователь не должен возвращаться на регистрацию
         elevation: 0, // Убрать тень, если нужно
       ),

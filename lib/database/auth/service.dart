@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/auth/model.dart';
-//import 'package:icecream_menu/database/auth/model.dart';
 
 class AuthService {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
@@ -12,22 +11,11 @@ class AuthService {
           .signInWithEmailAndPassword(email: email, password: password);
 
       User user = userCredential.user!;
-
       return UserModel.fromFirebase(user);
     } catch (e) {
       return null;
     }
   }
-Future<void> updateUserLastLogin(String uid) async {
-  try {
-    // Предполагая, что у вас есть коллекция 'users' в Firestore
-    await FirebaseFirestore.instance.collection('users').doc(uid).update({
-      'lastLogin': FieldValue.serverTimestamp(),
-    });
-  } catch (e) {
-    print('Ошибка обновления последнего входа: $e');
-  }
-}
 
   Future<UserModel?> signUp(String email, String password) async {
     try {
@@ -35,7 +23,6 @@ Future<void> updateUserLastLogin(String uid) async {
           .createUserWithEmailAndPassword(email: email, password: password);
 
       User user = userCredential.user!;
-
       return UserModel.fromFirebase(user);
     } catch (e) {
       return null;
@@ -51,5 +38,18 @@ Future<void> updateUserLastLogin(String uid) async {
         .authStateChanges()
         .map((user) => user != null ? UserModel.fromFirebase(user) : null);
   }
-}
 
+  User? getCurrentFirebaseUser() {
+    return _firebaseAuth.currentUser;
+  }
+
+  Future<void> updateUserLastLogin(String uid) async {
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        'lastLogin': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Ошибка обновления последнего входа: $e');
+    }
+  }
+}

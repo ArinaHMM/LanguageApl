@@ -17,6 +17,9 @@ import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/PhoneAu
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/SelectedLanguagesPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/add_audio.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/add_exercise_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/browse_learning_modules_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/learn_module.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/test.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/ProfilePage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/SettingsPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/SupportNav.dart';
@@ -42,7 +45,7 @@ final routes = {
   '/auth': (context) => AuthPage(),
   '/reg': (context) => const RegistrationPage(),
   '/profile': (context) => const ProfilePage(),
-  '/chat1': (context) => const ChatsPage1(),
+  // '/chat1': (context) => const ChatsPage1(),
   '/selectLanguage': (context) => const SelectLanguagePage(),
   '/settings': (context) => const SettingsPage(),
   '/learn': (context) => LearnPage(), // Главная страница
@@ -62,26 +65,30 @@ final routes = {
   //     ),
   '/audiolesson': (context) => AdminAudioLessonPage(),
   '/newles': (context) => AdminAddInteractiveLessonPage(),
+    '/module': (context) => AdminAddContentPage(),
+        '/modules_view': (context) => BrowseLearningModulesPage(),
+
+
 
   '/audio': (context) => AudioLessonPage(
         lessonId: '',
       ),
-  // '/audioles': (context) => AdminAddAudioWordBankLessonPage(),
+   '/audioles': (context) => AdminAddAudioWordBankLessonPage(),
 
   '/welcome': (context) => const WelcomePage(),
   '/ani': (context) => const IntroductionPage(),
-  '/game': (context) => MemoryGamePage(),
+  '/game': (context) => MemoryGamePage(languageCode: '',),
   '/video': (context) => VideoUploadPage(),
   '/navadmin': (context) => const AdminNavigationPage(),
   '/navsupport': (context) => const SupportNavigationPage(),
   '/splash': (context) => const SplashScreen(),
 
-  '/game2': (context) => HangmanGamePage(),
-  '/games': (context) => GamesPage(),
-  '/chat': (context) => const ChatsPage(),
+  '/game2': (context) => HangmanGamePage(languageCode: '',),
+  '/games': (context) => ViewGamesPage(),
+  // '/chat': (context) => const ChatsPage(),
   // '/prof1': (context) => const ProfilePage1(),
-
-  '/learnadmin': (context) => AdminLearnPage(),
+    '/learnadmin': (context) => AdminLearnPage(),
+   '/test': (context) => TestNotificationPage(),
   '/notifications': (context) => NotificationsPage(),
   '/upperlesson': (context) => AddUpperLessonPage(),
   '/upperupinterlesson': (context) => AddUpperUpInterLessonPageState(),

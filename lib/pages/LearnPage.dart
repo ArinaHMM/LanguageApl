@@ -1,30 +1,18 @@
 // lib/pages/LearnPage.dart
-
 import 'dart:async';
+import 'dart:math' as math; // Для min и Transform.rotate
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-// Ваши адаптированные классы для работы с Firestore
-import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart'; // Убедитесь, что методы обновлены
-import 'package:flutter_languageapplicationmycourse_2/database/collections/lessons_collections.dart'; // Убедитесь, что методы обновлены
-
-// Модели данных (предполагается, что они адаптированы)
-import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
+import 'package:flutter_languageapplicationmycourse_2/database/collections/lessons_collections.dart';
+import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
 import 'package:flutter_languageapplicationmycourse_2/models/lesson_model.dart';
-
-// Страница урока (должна уметь обрабатывать разные типы уроков)
+import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/audiolessons_service.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/audioplayerpage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/lesson_player_page.dart';
-
-
-// Виджеты
-import 'package:flutter_languageapplicationmycourse_2/widget/language_selector_widget.dart'; // Если он у вас есть и адаптирован
-
-// Пакеты
-import 'package:toast/toast.dart';
-
-// ВАЖНО: Импорты ВАШИХ старых страниц уроков (LessonPage1 и т.д.) здесь НЕ НУЖНЫ,
-// так как вся логика перехода должна вести на универсальный LessonPlayerPage или аналогичный.
+import 'package:flutter_languageapplicationmycourse_2/widget/language_selector_widget.dart';
+import 'package:toast/toast.dart'; // Вы используете этот пакет
 
 class LearnPage extends StatefulWidget {
   const LearnPage({Key? key}) : super(key: key);
@@ -35,7 +23,9 @@ class LearnPage extends StatefulWidget {
 
 class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
   final UsersCollection _usersCollection = UsersCollection();
-  final LessonsCollection _lessonsCollection = LessonsCollection(); // Ваш класс для получения уроков
+  final LessonsCollection _lessonsCollection = LessonsCollection();
+  final AudioWordBankLessonsService _audioWordBankService =
+      AudioWordBankLessonsService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   UserModel? _currentUserData;
@@ -44,172 +34,269 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
   bool _isLoading = true;
   String? _errorMessage;
 
-  int _lives = 5; // Начальное значение по умолчанию
+  int _lives = 5;
   Timer? _lifeRestoreTimer;
-  final ValueNotifier<int> _remainingTimeForLifeNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<int> _remainingTimeForLifeNotifier =
+      ValueNotifier<int>(0);
   bool _isAdmin = false;
 
-  // Порядок и стили уровней
-  final List<String> _levelOrder = ['Beginner', 'Elementary', 'Intermediate', 'Upper Intermediate', 'Advanced'];
-  final Map<String, Color> _levelColors = {
-    'Beginner': Colors.lightBlue[400]!,
-    'Elementary': Colors.green[500]!,
-    'Intermediate': Colors.orange[600]!,
-    'Upper Intermediate': Colors.purple[500]!,
-    'Advanced': Colors.red[600]!,
-    'Прочее': Colors.grey[600]!, // Для уроков без четкого уровня или кастомных
-  };
-   final Map<String, IconData> _levelIcons = { // Иконки для каждого уровня
-    'Beginner': Icons.child_friendly_outlined,
-    'Elementary': Icons.school_outlined,
-    'Intermediate': Icons.auto_stories_outlined,
-    'Upper Intermediate': Icons.menu_book_sharp,
-    'Advanced': Icons.workspace_premium_outlined,
-    'Прочее': Icons.category_outlined,
-  };
+  // --- НОВАЯ ЦВЕТОВАЯ ПАЛИТРА И СТИЛИ ---
+  final Color primaryOrange = const Color(0xFFFFA726); // Яркий оранжевый
+  final Color accentYellow =
+      const Color(0xFFFFE082); // Очень светло-желтый/персиковый для фона
+  final Color darkOrange =
+      const Color(0xFFF57C00); // Темнее оранжевый для акцентов
+  final Color textOnOrange = Colors.white;
+  final Color textOnWhite =
+      const Color(0xFF3A3A3A); // Темно-серый для текста на светлом фоне
+  final Color subtleShadow = Colors.black.withOpacity(0.12);
 
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
+  final List<String> _levelOrder = [
+    'Beginner',
+    'Elementary',
+    'Intermediate',
+    'Upper Intermediate',
+    'Advanced'
+  ];
+  late final Map<String, Color> _levelColors;
+  late final Map<String, IconData> _levelIcons;
 
-  int _bottomNavSelectedIndex = 0; // Для BottomNavigationBar
+  late AnimationController _pageFadeController;
+  late Animation<double> _pageFadeAnimation;
+  late List<AnimationController> _sectionAppearControllers;
+  late List<Animation<double>> _sectionAppearAnimations;
+
+  int _bottomNavSelectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600), // Увеличено для более плавной анимации
+
+    _levelColors = {
+      'Beginner': const Color.fromARGB(255, 226, 178, 33),
+      'Elementary': const Color.fromARGB(255, 209, 133, 18),
+      'Intermediate': primaryOrange, // Используем наш основной оранжевый
+      'Upper Intermediate': const Color.fromARGB(255, 194, 83, 49),
+      'Advanced': const Color.fromARGB(255, 156, 37, 35),
+      'Прочее': const Color.fromARGB(255, 138, 151, 158),
+    };
+
+    _levelIcons = {
+      'Beginner': Icons.emoji_people_rounded,
+      'Elementary': Icons.school_rounded,
+      'Intermediate': Icons.auto_stories_rounded,
+      'Upper Intermediate': Icons.menu_book_rounded,
+      'Advanced': Icons.military_tech_rounded,
+      'Прочее': Icons.explore_rounded,
+    };
+
+    _pageFadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
+    _pageFadeAnimation =
+        CurvedAnimation(parent: _pageFadeController, curve: Curves.easeInOut);
+
+    _sectionAppearControllers = [];
+    _sectionAppearAnimations = [];
+
     _initializePage();
+  }
+
+  void _initSectionAnimations(int count) {
+    // Dispose old controllers before creating new ones
+    for (var controller in _sectionAppearControllers) {
+      controller.dispose();
+    }
+    _sectionAppearControllers = List.generate(
+        count,
+        (index) => AnimationController(
+            duration: const Duration(milliseconds: 450), vsync: this));
+    _sectionAppearAnimations = _sectionAppearControllers
+        .map((controller) => CurvedAnimation(
+                parent: controller,
+                curve: Curves
+                    .easeOutBack) // easeOutBack для "выпрыгивающего" эффекта
+            )
+        .toList();
+  }
+
+  void _playSectionAnimations() {
+    for (int i = 0; i < _sectionAppearControllers.length; i++) {
+      Future.delayed(Duration(milliseconds: 120 * i), () {
+        // Немного уменьшил задержку
+        if (mounted &&
+            i < _sectionAppearControllers.length &&
+            !_sectionAppearControllers[i].isAnimating) {
+          _sectionAppearControllers[i].forward();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _lifeRestoreTimer?.cancel();
+    _remainingTimeForLifeNotifier.dispose();
+    _pageFadeController.dispose();
+    _sectionAppearControllers.forEach((controller) => controller.dispose());
+    super.dispose();
   }
 
   Future<void> _initializePage({bool isLanguageChange = false}) async {
     if (!mounted) return;
-    if (!isLanguageChange) { // Полная перезагрузка только если это не смена языка
-      setState(() { _isLoading = true; _errorMessage = null; });
+    if (!isLanguageChange) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
     }
-    _fadeController.reset(); // Сбрасываем анимацию
+    _pageFadeController.reset();
+    // Сбрасываем анимации секций перед новой загрузкой
+    for (var controller in _sectionAppearControllers) {
+      controller.reset();
+    }
 
     final User? firebaseUser = _auth.currentUser;
     if (firebaseUser == null) {
       _handleUnauthenticatedUser();
+      if (!isLanguageChange && mounted) setState(() => _isLoading = false);
       return;
     }
 
     try {
-      // 1. Получаем данные пользователя
-      UserModel? userData = await _usersCollection.getUserModel(firebaseUser.uid);
+      UserModel? userData =
+          await _usersCollection.getUserModel(firebaseUser.uid);
       if (!mounted) return;
-
-      if (userData == null || userData.languageSettings == null || userData.languageSettings!.learningProgress.isEmpty) {
-        // Если нет настроек языка (например, новый пользователь, который пропустил выбор)
+      if (userData == null ||
+          userData.languageSettings == null ||
+          !userData.languageSettings!.learningProgress.containsKey(
+              userData.languageSettings!.currentLearningLanguage)) {
         _handleMissingLanguageSettings();
+        if (!isLanguageChange && mounted) setState(() => _isLoading = false);
         return;
       }
-      
-      _currentUserData = userData;
-      // Устанавливаем текущий язык обучения из данных пользователя
-      _currentLearningLanguage = _currentUserData!.languageSettings!.currentLearningLanguage;
-      _lives = _currentUserData!.lives;
-      _isAdmin = _currentUserData!.email == 'admin@mail.ru'; // Проверка на админа
+      setState(() {
+        _currentUserData = userData;
+        _currentLearningLanguage =
+            _currentUserData!.languageSettings!.currentLearningLanguage;
+        _lives = _currentUserData!.lives;
+        _isAdmin = _currentUserData!.email == 'admin@mail.ru';
+        if (isLanguageChange) _allLessonsForCurrentLanguage = [];
+      });
 
-      // 2. Инициализируем таймер жизней
-      _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
-
-      // 3. Загружаем уроки для текущего языка
+      _initializeLifeTimer(
+          _currentUserData!.lives, _currentUserData!.lastRestored);
       await _fetchLessonsForCurrentLanguage();
-      
-      if (mounted) {
-         _fadeController.forward(); // Запускаем анимацию появления контента
-      }
 
-    } catch (e) {
-      print("Error initializing LearnPage: $e");
       if (mounted) {
-        setState(() { _errorMessage = "Ошибка загрузки данных. Попробуйте позже."; });
+        final levelsToDisplay = _getLevelsToDisplay(_groupLessonsByLevel());
+        _initSectionAnimations(
+            levelsToDisplay.length); // Инициализируем ДО setState
+
+        setState(() {
+          _isLoading = false;
+        });
+        _pageFadeController.forward();
+        _playSectionAnimations(); // Запускаем анимации секций
       }
-    } finally {
-      if (mounted && !isLanguageChange) {
-        setState(() { _isLoading = false; });
+    } catch (e, s) {
+      print(
+          "--- LearnPage: _initializePage - КРИТИЧЕСКАЯ ОШИБКА: $e\nStack: $s ---");
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              "Ошибка загрузки данных. Пожалуйста, попробуйте позже.";
+          _isLoading = false;
+        });
       }
     }
   }
 
   void _handleUnauthenticatedUser() {
-     if (!mounted) return;
-    // Если пользователь не аутентифицирован, перенаправляем на страницу входа
+    if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false);
+      if (mounted)
+        Navigator.pushNamedAndRemoveUntil(context, '/auth', (route) => false);
     });
   }
 
   void _handleMissingLanguageSettings() {
     if (!mounted) return;
-    // Если у пользователя нет настроек языка, перенаправляем на страницу выбора языка
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/selectLanguage', (route) => false);
+      if (mounted)
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/selectLanguage', (route) => false);
     });
   }
-  
+
   Future<void> _fetchLessonsForCurrentLanguage() async {
     if (_currentUserData == null || !mounted) return;
-    // Очищаем предыдущие уроки перед загрузкой новых (для корректной смены языка)
-    if (mounted) setState(() { _allLessonsForCurrentLanguage = []; });
-
+    List<Lesson> fetchedLessons = [];
     try {
-      List<Lesson> fetchedLessons = [];
-      // Список коллекций, из которых нужно загружать уроки
-      final lessonCollectionsToFetch = [
-        // 'lessons', // Ваша старая коллекция, если она есть и содержит уроки
-        'interactiveLessons', // Новая коллекция из админки
+      final standardLessonCollections = [
+        'interactiveLessons',
         'addlessons',
-        'upperlessons', // Убедитесь, что для этих коллекций в Firestore у уроков есть поля targetLanguage и requiredLevel
+        'upperlessons',
         'audiolessons',
         'videolessons',
         'advancedlessons',
         'upperinterlessons',
         'upperupinterlessons'
-        // Добавьте другие ваши коллекции уроков сюда
       ];
-      
-      for (String collectionName in lessonCollectionsToFetch) {
-        // Предполагаем, что getLessonsFromCollection фильтрует по targetLanguage
-        fetchedLessons.addAll(await _lessonsCollection.getLessons(collectionName, _currentLearningLanguage));
+      for (String collectionName in standardLessonCollections) {
+        try {
+          List<Lesson> lessonsFromStdCollection = await _lessonsCollection
+              .getLessons(collectionName, _currentLearningLanguage);
+          fetchedLessons.addAll(lessonsFromStdCollection);
+        } catch (e) {
+          print(
+              "Error fetching from standard collection '$collectionName' for $_currentLearningLanguage: $e");
+        }
       }
-      
-      // Опционально: Сортировка уроков, например, по orderIndex, если он есть
-      // fetchedLessons.sort((a, b) => (a.orderIndex ?? 0).compareTo(b.orderIndex ?? 0));
+      try {
+        List<Lesson> audioWordBankLessons = await _audioWordBankService
+            .getAudioWordBankLessons(_currentLearningLanguage);
+        fetchedLessons.addAll(audioWordBankLessons);
+      } catch (e) {
+        print(
+            "Error fetching from AudioWordBankService for $_currentLearningLanguage: $e");
+      }
 
+      fetchedLessons.sort((a, b) => (a.orderIndex).compareTo(b.orderIndex));
       if (mounted) {
-        setState(() { _allLessonsForCurrentLanguage = fetchedLessons; });
+        setState(() {
+          _allLessonsForCurrentLanguage = fetchedLessons;
+        });
       }
-    } catch (e) {
-      print("Error fetching lessons for $_currentLearningLanguage: $e");
-      if (mounted) setState(() { _errorMessage = "Ошибка загрузки уроков."; });
+    } catch (e, s) {
+      print(
+          "Error in _fetchLessonsForCurrentLanguage for $_currentLearningLanguage: $e\nStack: $s");
+      if (mounted)
+        setState(() {
+          _errorMessage = "Не удалось загрузить список уроков.";
+        });
     }
   }
 
-  // --- Логика жизней (оставляем как есть, если она работала) ---
   void _initializeLifeTimer(int currentLives, Timestamp lastRestored) {
     _lifeRestoreTimer?.cancel();
     if (!mounted) return;
-
     DateTime lastRestoredTime = lastRestored.toDate();
-    // Убедитесь, что у вас есть константа или переменная для интервала восстановления
-    const Duration lifeRestoreInterval = Duration(minutes: 5); // Например, 5 минут
-
+    const Duration lifeRestoreInterval = Duration(minutes: 5);
     if (currentLives < 5) {
       DateTime nextRestoreTime = lastRestoredTime.add(lifeRestoreInterval);
-      int secondsToNextRestore = nextRestoreTime.difference(DateTime.now()).inSeconds;
-
+      int secondsToNextRestore =
+          nextRestoreTime.difference(DateTime.now()).inSeconds;
       if (secondsToNextRestore <= 0) {
-        // Если время уже прошло, пытаемся восстановить жизни на основе прошедшего времени
         _handleInstantRestore();
       } else {
         _remainingTimeForLifeNotifier.value = secondsToNextRestore;
         _lifeRestoreTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          if (!mounted) { timer.cancel(); return; } // Проверка, что виджет еще существует
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
           if (_remainingTimeForLifeNotifier.value > 0) {
             _remainingTimeForLifeNotifier.value--;
           } else {
@@ -219,537 +306,770 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
         });
       }
     } else {
-       _remainingTimeForLifeNotifier.value = 0; // Если жизней полно, таймер не нужен
+      _remainingTimeForLifeNotifier.value = 0;
     }
   }
-  
+
   Future<void> _handleInstantRestore() async {
     if (_currentUserData == null || !mounted) return;
-
     DateTime lastRestoredTime = _currentUserData!.lastRestored.toDate();
-    const Duration lifeRestoreInterval = Duration(minutes: 5); // Должно совпадать с _initializeLifeTimer
-    int totalMinutesPassed = DateTime.now().difference(lastRestoredTime).inMinutes;
-    int livesToPotentiallyRestore = totalMinutesPassed ~/ lifeRestoreInterval.inMinutes;
-
+    const Duration lifeRestoreInterval = Duration(minutes: 5);
+    int totalMinutesPassed =
+        DateTime.now().difference(lastRestoredTime).inMinutes;
+    int livesToPotentiallyRestore =
+        totalMinutesPassed ~/ lifeRestoreInterval.inMinutes;
     if (livesToPotentiallyRestore > 0 && _currentUserData!.lives < 5) {
       int currentLivesInDb = _currentUserData!.lives;
-      int newLives = (currentLivesInDb + livesToPotentiallyRestore).clamp(0, 5);
-      
-      if (newLives > currentLivesInDb) {
-        // Обновляем lastRestored только на то количество интервалов, сколько жизней было реально восстановлено
-        // Это важно, чтобы не "терять" время, если восстановлено меньше, чем могло бы быть
-        Timestamp newLastRestoredTimestamp = Timestamp.fromDate(
-            lastRestoredTime.add(lifeRestoreInterval * (newLives - currentLivesInDb))
-        );
-        // Если все 5 жизней восстановлены, то lastRestored можно поставить текущее время,
-        // чтобы следующий отсчет начался с нуля, когда жизнь потратится.
-        if (newLives == 5) {
-            newLastRestoredTimestamp = Timestamp.now();
+      int newLivesValue =
+          (currentLivesInDb + livesToPotentiallyRestore).clamp(0, 5);
+      if (newLivesValue > currentLivesInDb) {
+        Timestamp newLastRestoredTimestamp = Timestamp.fromDate(lastRestoredTime
+            .add(lifeRestoreInterval * (newLivesValue - currentLivesInDb)));
+        if (newLivesValue == 5) newLastRestoredTimestamp = Timestamp.now();
+        await _usersCollection.updateUserCollection(_currentUserData!.uid,
+            {'lives': newLivesValue, 'lastRestored': newLastRestoredTimestamp});
+        if (mounted) {
+          _lives = newLivesValue;
+          _currentUserData = _currentUserData!.copyWith(
+              lives: newLivesValue, lastRestored: newLastRestoredTimestamp);
+          setState(() {});
         }
-
-        await _usersCollection.updateUserCollection(_currentUserData!.uid, {
-          'lives': newLives,
-          'lastRestored': newLastRestoredTimestamp, 
-        });
-        if(mounted) {
-          setState(() {
-            _lives = newLives;
-            // Обновляем локальный _currentUserData, чтобы он был консистентен
-            _currentUserData = _currentUserData!.copyWith(lives: newLives, lastRestored: newLastRestoredTimestamp);
-          });
-        }
-        _initializeLifeTimer(newLives, newLastRestoredTimestamp); // Перезапускаем таймер с новым временем
+        _initializeLifeTimer(newLivesValue, newLastRestoredTimestamp);
       } else {
-         // Если расчетное количество жизней не увеличивает текущее, просто перезапускаем таймер
-         _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
+        _initializeLifeTimer(
+            _currentUserData!.lives, _currentUserData!.lastRestored);
       }
     } else {
-       _initializeLifeTimer(_currentUserData!.lives, _currentUserData!.lastRestored);
+      _initializeLifeTimer(
+          _currentUserData!.lives, _currentUserData!.lastRestored);
     }
   }
 
   Future<void> _restoreLife() async {
     if (_currentUserData == null || _lives >= 5 || !mounted) return;
-
-    int newLives = _lives + 1;
-    Timestamp newLastRestored = Timestamp.now(); // Время фактического восстановления
-
-    await _usersCollection.updateUserCollection(_currentUserData!.uid, {
-      'lives': newLives,
-      'lastRestored': newLastRestored,
-    });
-
+    int newLivesValue = _lives + 1;
+    Timestamp newLastRestored = Timestamp.now();
+    await _usersCollection.updateUserCollection(_currentUserData!.uid,
+        {'lives': newLivesValue, 'lastRestored': newLastRestored});
     if (mounted) {
-      setState(() {
-        _lives = newLives;
-        _currentUserData = _currentUserData!.copyWith(lives: newLives, lastRestored: newLastRestored);
-      });
-      _initializeLifeTimer(newLives, newLastRestored); // Перезапуск таймера
+      _lives = newLivesValue;
+      _currentUserData = _currentUserData!
+          .copyWith(lives: newLivesValue, lastRestored: newLastRestored);
+      setState(() {});
+      _initializeLifeTimer(newLivesValue, newLastRestored);
     }
   }
 
   Future<bool> _deductLife() async {
-    if (_currentUserData == null || _lives <= 0 || !mounted) {
-      if (mounted && _lives <=0) Toast.show("Недостаточно жизней!", duration: Toast.lengthShort);
+    if (!mounted || _currentUserData == null) return false;
+    if (_lives <= 0) {
+      Toast.show("Недостаточно жизней!",
+          duration: Toast.lengthShort, gravity: Toast.center);
       return false;
     }
-
-    int newLives = _lives - 1;
-    // Время списания жизни. Если жизней было 5, то это время станет новой точкой отсчета для восстановления.
-    Timestamp timeOfDeduction = Timestamp.now(); 
-
+    int newLivesValue = _lives - 1;
+    Timestamp timeOfDeduction = Timestamp.now();
+    bool success = false;
     try {
-      await _usersCollection.updateUserCollection(_currentUserData!.uid, {
-        'lives': newLives,
-        // Обновляем lastRestored, чтобы таймер начал отсчет с момента траты жизни,
-        // если это была первая потраченная жизнь из полных 5.
-        // Если жизней было меньше 5, lastRestored не меняется, т.к. таймер уже идет.
-        if (_lives == 5) 'lastRestored': timeOfDeduction,
-      });
-
+      Map<String, dynamic> updateData = {'lives': newLivesValue};
+      bool shouldUpdateLastRestored =
+          (_currentUserData!.lives == 5 && newLivesValue < 5);
+      if (shouldUpdateLastRestored)
+        updateData['lastRestored'] = timeOfDeduction;
+      await _usersCollection.updateUserCollection(
+          _currentUserData!.uid, updateData);
       if (mounted) {
-        setState(() {
-          _lives = newLives;
-          _currentUserData = _currentUserData!.copyWith(
-            lives: newLives,
-            lastRestored: (_lives == 5) ? timeOfDeduction : _currentUserData!.lastRestored // Обновляем локально, если нужно
-          );
-        });
-        _initializeLifeTimer(newLives, (_lives == 5 && newLives < 5) ? timeOfDeduction : _currentUserData!.lastRestored);
+        _lives = newLivesValue;
+        _currentUserData = _currentUserData!.copyWith(
+            lives: newLivesValue,
+            lastRestored: shouldUpdateLastRestored
+                ? timeOfDeduction
+                : _currentUserData!.lastRestored);
+        setState(() {});
+        _initializeLifeTimer(newLivesValue, _currentUserData!.lastRestored);
       }
-      return true;
+      success = true;
     } catch (e) {
-      if (mounted) Toast.show("Ошибка при списании жизни.", duration: Toast.lengthShort);
-      return false;
+      print("Error deducting life: $e");
+      if (mounted)
+        Toast.show("Ошибка при списании жизни.",
+            duration: Toast.lengthShort, gravity: Toast.center);
     }
+    return success;
   }
 
-  // --- Смена языка ---
   Future<void> _onLanguageChanged(String newLanguageCode) async {
-    if (_currentUserData == null || newLanguageCode == _currentLearningLanguage || !mounted) return;
-    
-    // Показываем индикатор загрузки на время смены языка
+    if (_currentUserData == null ||
+        newLanguageCode == _currentLearningLanguage ||
+        !mounted) return;
     if (mounted) {
-      // Не используем setState здесь, чтобы не перерисовывать весь экран ради индикатора
-      // Вместо этого, индикатор будет частью логики, если _isLoading = true
-      // Но для быстрой смены языка можно показать диалог
       showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(child: CircularProgressIndicator(color: Colors.white)), // Цвет для лучшей видимости, если фон темный
-      );
+          context: context,
+          barrierDismissible: false,
+          builder: (context) =>
+              Center(child: CircularProgressIndicator(color: primaryOrange)));
     }
-
     try {
-      await _usersCollection.updateUserCollection(_currentUserData!.uid, {
-        'languageSettings.currentLearningLanguage': newLanguageCode,
-      });
-      // Перезагружаем всю страницу с новыми данными для выбранного языка
-      await _initializePage(isLanguageChange: true); // isLanguageChange: true, чтобы не показывать основной лоадер
-    } catch (e) {
-      if (mounted) Toast.show("Ошибка смены языка", duration: Toast.lengthShort);
+      await _usersCollection.updateUserCollection(_currentUserData!.uid,
+          {'languageSettings.currentLearningLanguage': newLanguageCode});
+      await _initializePage(isLanguageChange: true);
+    } catch (e, s) {
+      print("Error changing language: $e\nStack: $s");
+      if (mounted)
+        Toast.show("Ошибка смены языка", duration: Toast.lengthShort);
     } finally {
-      if (mounted) {
-        Navigator.pop(context); // Закрываем диалог загрузки
-        // setState(() { _isLoading = false; }); // _initializePage сам управляет _isLoading
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
       }
     }
   }
-  
-  // --- Навигация на урок ---
-  void _navigateToLesson(Lesson lesson) async {
-      if (!mounted) return;
 
-      bool canProceed = await _deductLife(); 
-      if (!canProceed) {
-          return; 
+  Future<void> _navigateToLesson(Lesson lesson) async {
+    if (!mounted) return;
+    final BuildContext currentContext = context;
+    bool dialogShown = false;
+    if (mounted) {
+      try {
+        showDialog(
+            context: currentContext,
+            barrierDismissible: false,
+            builder: (BuildContext dialogContext) =>
+                Center(child: CircularProgressIndicator(color: primaryOrange)));
+        dialogShown = true;
+      } catch (e) {
+        print("Error showing deduct life dialog: $e");
       }
-      
-      print("Navigating to lesson: ${lesson.title} (ID: ${lesson.id}, Collection: ${lesson.collectionName})");
-      
+    }
+    bool canProceed = await _deductLife();
+    if (dialogShown && mounted) {
+      try {
+        if (Navigator.canPop(currentContext)) {
+          Navigator.pop(currentContext);
+        }
+      } catch (e) {
+        print("Error popping deduct life dialog: $e");
+      }
+    }
+    if (!mounted || !canProceed) return;
+    Widget lessonViewerPage;
+    if (lesson.lessonType == 'audioWordBankSentence' ||
+        lesson.collectionName == _audioWordBankService.collectionName) {
+      lessonViewerPage = LessonPlayerAudioPage(
+          lesson: lesson, onProgressUpdated: _handleProgressUpdate);
+    } else {
+      lessonViewerPage = LessonPlayerPage(
+          lesson: lesson, onProgressUpdated: _handleProgressUpdate);
+    }
+    Future.microtask(() {
       if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LessonPlayerPage( // ВАШ УНИВЕРСАЛЬНЫЙ ПЛЕЕР УРОКОВ
-              lesson: lesson,
-              onProgressUpdated: _handleProgressUpdate, // Коллбэк для обновления прогресса
-            ),
-          ),
-        ).then((_) {
-          // Вызывается после возврата со страницы урока
+        Navigator.push(currentContext,
+                MaterialPageRoute(builder: (routeContext) => lessonViewerPage))
+            .then((_) {
           if (mounted) {
-            // Можно обновить данные, если это необходимо
-            // setState(() {}); // Например, для обновления жизней, если они восстановились во время урока
+            _initializePage(isLanguageChange: false);
           }
         });
       }
+    });
   }
 
-  // --- Обновление прогресса ---
   void _handleProgressUpdate(String lessonId, int newProgress) async {
     if (_currentUserData == null || !mounted) return;
-
-    // Оптимистичное обновление UI
-    if (mounted) {
+    UserModel updatedUserDataLocally = _currentUserData!
+        .updateLessonProgress(_currentLearningLanguage, lessonId, newProgress);
+    if (mounted)
       setState(() {
-        _currentUserData = _currentUserData!.updateLessonProgress(_currentLearningLanguage, lessonId, newProgress);
+        _currentUserData = updatedUserDataLocally;
       });
-    }
-    // Обновление в Firestore
     await _usersCollection.updateLessonProgressInUserDoc(
         _currentUserData!.uid, _currentLearningLanguage, lessonId, newProgress);
+    if (newProgress >= 100) await _checkAndAdvanceLevel();
   }
-  
-  // --- Удаление урока (для админа) ---
+
+  Future<void> _checkAndAdvanceLevel() async {
+    if (_currentUserData == null || !mounted) return;
+    final UserLanguageSettings? langSettings =
+        _currentUserData!.languageSettings;
+    if (langSettings == null) return;
+    final UserLanguageProgress? langProgress =
+        langSettings.learningProgress[_currentLearningLanguage];
+    if (langProgress == null) return;
+    final String currentUserLevel = langProgress.level;
+    if (currentUserLevel == _levelOrder.last) return;
+    final lessonsForCurrentUserLevel = _allLessonsForCurrentLanguage
+        .where((lesson) =>
+            lesson.requiredLevel == currentUserLevel &&
+            lesson.targetLanguage == _currentLearningLanguage)
+        .toList();
+    if (lessonsForCurrentUserLevel.isEmpty) {
+      if (currentUserLevel != "" &&
+          currentUserLevel.toLowerCase() != "begginer" &&
+          currentUserLevel != _levelOrder.first) {
+        await _advanceToNextLevel(currentUserLevel);
+      }
+      return;
+    }
+    final Map<String, int> userLessonProgress = langProgress.lessonsCompleted;
+    bool allLessonsInCurrentLevelCompleted = lessonsForCurrentUserLevel
+        .every((lesson) => (userLessonProgress[lesson.id] ?? 0) >= 100);
+    if (allLessonsInCurrentLevelCompleted) {
+      await _advanceToNextLevel(currentUserLevel);
+    }
+  }
+
+  Future<void> _advanceToNextLevel(String currentLevel) async {
+    if (_currentUserData == null || !mounted) return;
+    int currentLevelIndex = _levelOrder.indexOf(currentLevel);
+    if (currentLevel == "" || currentLevel.toLowerCase() == "begginer") {
+      currentLevelIndex = -1;
+    }
+    if (currentLevelIndex == -1 &&
+        currentLevel != "" &&
+        currentLevel.toLowerCase() != "begginer") {
+      print("Текущий уровень '$currentLevel' не найден. Повышение невозможно.");
+      return;
+    }
+    if (currentLevelIndex >= _levelOrder.length - 1) {
+      print("Пользователь уже на максимальном уровне.");
+      return;
+    }
+    String nextLevel = _levelOrder[currentLevelIndex + 1];
+    try {
+      await _usersCollection.updateUserLevel(
+          _currentUserData!.uid, _currentLearningLanguage, nextLevel);
+      final langSettings = _currentUserData!.languageSettings;
+      if (langSettings != null) {
+        final learningProg =
+            langSettings.learningProgress[_currentLearningLanguage];
+        if (learningProg != null) {
+          final updatedLangProg = learningProg.copyWith(level: nextLevel);
+          final newLearningProgressMap = Map<String, UserLanguageProgress>.from(
+              langSettings.learningProgress);
+          newLearningProgressMap[_currentLearningLanguage] = updatedLangProg;
+          final updatedSettings =
+              langSettings.copyWith(learningProgress: newLearningProgressMap);
+          if (mounted) {
+            setState(() {
+              _currentUserData =
+                  _currentUserData!.copyWith(languageSettings: updatedSettings);
+            });
+          }
+        }
+      }
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              backgroundColor: Colors.white,
+              title: Row(children: [
+                Icon(Icons.emoji_events_rounded, color: accentYellow, size: 32),
+                const SizedBox(width: 12),
+                Text("Новый Уровень!",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: textOnWhite))
+              ]),
+              content: Text(
+                  "Поздравляем! Вы достигли уровня: $nextLevel по ${_getLanguageDisplayName(_currentLearningLanguage)}!",
+                  style: TextStyle(
+                      fontSize: 16, color: textOnWhite.withOpacity(0.8))),
+              actions: [
+                TextButton(
+                    child: Text("Продолжить Путь!",
+                        style: TextStyle(
+                            color: primaryOrange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16)),
+                    onPressed: () => Navigator.pop(context))
+              ]),
+        );
+      }
+    } catch (e, s) {
+      print("Error advancing user level: $e\nStack: $s");
+      if (mounted)
+        Toast.show("Ошибка при повышении уровня.", duration: Toast.lengthShort);
+    }
+  }
+
   Future<void> _deleteLesson(Lesson lesson) async {
     if (!_isAdmin || _currentUserData == null || !mounted) return;
-
     bool confirmDelete = await showDialog<bool>(
-        context: context,
-        builder: (BuildContext dialogContext) => AlertDialog(
-              title: Text("Удалить урок?"),
-              content: Text("Вы уверены, что хотите удалить урок '${lesson.title}' из коллекции '${lesson.collectionName}'? Это действие необратимо."),
-              actions: <Widget>[
-                TextButton(child: Text("Отмена"), onPressed: () => Navigator.of(dialogContext).pop(false)),
-                TextButton(child: Text("Удалить", style: TextStyle(color: Colors.red)), onPressed: () => Navigator.of(dialogContext).pop(true)),
-              ],
-            )) ?? false;
-
+            context: context,
+            builder: (BuildContext dialogContext) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15)),
+                  title: const Text("Удалить урок?"),
+                  content: Text(
+                      "Вы уверены, что хотите удалить урок '${lesson.title}' (${lesson.collectionName})? Это действие необратимо."),
+                  actions: <Widget>[
+                    TextButton(
+                        child: const Text("Отмена",
+                            style: TextStyle(color: Colors.grey)),
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop(false)),
+                    TextButton(
+                        child: Text("Удалить",
+                            style: TextStyle(color: Colors.red[700])),
+                        onPressed: () => Navigator.of(dialogContext).pop(true)),
+                  ],
+                )) ??
+        false;
     if (confirmDelete) {
       try {
-        // Используем collectionName из объекта Lesson для удаления из правильной коллекции
-        await _lessonsCollection.deleteLessonFromCollection(lesson.collectionName, lesson.id);
-        if (mounted) Toast.show("Урок '${lesson.title}' удален.", duration: Toast.lengthShort);
-        // Перезагружаем уроки для текущего языка
+        if (lesson.collectionName == _audioWordBankService.collectionName) {
+          await _audioWordBankService.deleteAudioWordBankLesson(lesson.id);
+        } else {
+          await _lessonsCollection.deleteLessonFromCollection(
+              lesson.collectionName, lesson.id);
+        }
+        if (mounted)
+          Toast.show("Урок '${lesson.title}' удален.",
+              duration: Toast.lengthShort);
         await _fetchLessonsForCurrentLanguage();
       } catch (e) {
-        if (mounted) Toast.show("Ошибка удаления урока.", duration: Toast.lengthShort);
+        if (mounted)
+          Toast.show("Ошибка удаления урока.", duration: Toast.lengthShort);
         print("Error deleting lesson: $e");
       }
     }
   }
+  // Конец ваших существующих методов
 
-  @override
-  void dispose() {
-    _lifeRestoreTimer?.cancel();
-    _remainingTimeForLifeNotifier.dispose();
-    _fadeController.dispose();
-    super.dispose();
-  }
-
-  // --- Методы для UI ---
   @override
   Widget build(BuildContext context) {
-    ToastContext().init(context); // Для пакета toast
-
-    // Определяем, нужно ли показывать селектор языка в AppBar
-    bool canShowLanguageSelector = false;
+    ToastContext().init(context);
+    final currentUser = _currentUserData;
+    final langSettings = currentUser?.languageSettings;
+    final learningProgressMap = langSettings?.learningProgress;
+    bool canShowLanguageSelector = (learningProgressMap?.keys.length ?? 0) > 1;
     List<String> availableLangsForSelector = [];
-
-    if (_currentUserData != null &&
-        _currentUserData!.languageSettings != null &&
-        _currentUserData!.languageSettings!.learningProgress.isNotEmpty) {
-      // Показываем селектор, если доступно больше одного языка для изучения
-      canShowLanguageSelector = _currentUserData!.languageSettings!.learningProgress.keys.length > 1;
-      if (canShowLanguageSelector) {
-        availableLangsForSelector = _currentUserData!.languageSettings!.learningProgress.keys.toList();
-      }
+    if (canShowLanguageSelector && learningProgressMap != null) {
+      availableLangsForSelector = learningProgressMap.keys.toList();
     }
 
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: _isLoading 
-            ? Text("Загрузка...", style: TextStyle(fontSize: 18, color: Colors.white))
-            : Text(
-                _getLanguageDisplayName(_currentLearningLanguage), 
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white)
-              ),
-        backgroundColor: const Color.fromARGB(255, 0, 167, 28), // Немного другой оттенок зеленого
-        elevation: 0, // Плоский AppBar для "карточного" стиля
-        automaticallyImplyLeading: false, // Убираем кнопку "назад" по умолчанию
-        actions: [
-          _buildLivesIndicator(), // Индикатор жизней
-          // Селектор языка, если доступно несколько
-          if (canShowLanguageSelector)
-             LanguageSelectorWidget( // Ваш кастомный виджет для выбора языка
-                availableLanguages: availableLangsForSelector,
-                currentLanguageCode: _currentLearningLanguage,
-                onLanguageSelected: _onLanguageChanged, // Метод для смены языка
-             )
-          // Если только один язык, можно просто показать его код или короткое название
-          else if (_currentUserData != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: Center(child: Text(_getLanguageDisplayName(_currentLearningLanguage, short: true), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
-            ),
-        ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+              colors: [
+                accentYellow.withOpacity(0.7),
+                primaryOrange.withOpacity(0.8),
+                darkOrange.withOpacity(0.95)
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0.0, 0.5, 1.0]),
+        ),
+        child: Column(
+          children: [
+            _buildCustomAppBar(
+                canShowLanguageSelector, availableLangsForSelector),
+            Expanded(child: _buildBody()),
+          ],
+        ),
       ),
-      body: _buildBody(),
       bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
+  Widget _buildCustomAppBar(
+      bool canShowLanguageSelector, List<String> availableLangsForSelector) {
+    return Material(
+      elevation: 3.0,
+      child: Container(
+        decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                darkOrange,
+                primaryOrange,
+                accentYellow.withOpacity(0.8)
+              ],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  spreadRadius: 1,
+                  blurRadius: 4,
+                  offset: Offset(0, 2))
+            ]),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                SizedBox(width: canShowLanguageSelector ? 0 : 40),
+                Expanded(
+                  child: Center(
+                    child: _isLoading || _currentUserData == null
+                        ? Text("LingoQuest",
+                            style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: textOnOrange))
+                        : Text(
+                            _getLanguageDisplayName(_currentLearningLanguage),
+                            style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: textOnOrange,
+                                letterSpacing: 0.5),
+                          ),
+                  ),
+                ),
+                if (canShowLanguageSelector)
+                  SizedBox(
+                    width: 130,
+                    child: LanguageSelectorWidget(
+                      // Убираем несуществующие параметры
+                      availableLanguages: availableLangsForSelector,
+                      currentLanguageCode: _currentLearningLanguage,
+                      onLanguageSelected: _onLanguageChanged,
+                      // textColor: textOnOrange, // УБРАНО
+                      // dropdownColor: darkOrange.withOpacity(0.9), // УБРАНО
+                      // iconColor: textOnOrange.withOpacity(0.8), // УБРАНО
+                    ),
+                  )
+                else if (_currentUserData != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 16.0),
+                    child: Text(
+                        _getLanguageDisplayName(_currentLearningLanguage,
+                            short: true),
+                        style: TextStyle(
+                            color: textOnOrange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18)),
+                  )
+                else
+                  const SizedBox(width: 40),
+                if (_currentUserData != null) _buildLivesIndicator(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLivesIndicator() {
-    return Padding(
-      padding: const EdgeInsets.only(right:12.0, left: 8.0), // Небольшие отступы
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.favorite, color: Colors.pinkAccent[100], size: 24),
-          const SizedBox(width: 5),
-          Text("$_lives", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          Icon(Icons.favorite_rounded,
+              color: Colors.redAccent.shade100, size: 22), // Ярче сердце
+          const SizedBox(width: 6),
+          Text("$_lives",
+              style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: textOnOrange)),
           const SizedBox(width: 8),
           ValueListenableBuilder<int>(
             valueListenable: _remainingTimeForLifeNotifier,
             builder: (context, timeLeft, child) {
-              if (_lives >= 5 || timeLeft <= 0) return SizedBox.shrink(); // Не показывать таймер, если жизни полны или время 0
+              if (_lives >= 5 || timeLeft <= 0) return const SizedBox.shrink();
               final minutes = (timeLeft ~/ 60).toString().padLeft(2, '0');
               final seconds = (timeLeft % 60).toString().padLeft(2, '0');
-              return Text("$minutes:$seconds", style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.85)));
+              return Text("$minutes:$seconds",
+                  style: TextStyle(
+                      fontSize: 13, color: textOnOrange.withOpacity(0.9)));
             },
           ),
         ],
       ),
     );
   }
-  
+
   String _getLanguageDisplayName(String code, {bool short = false}) {
-    // Преобразуйте коды языков в отображаемые имена
+    if (code.isEmpty) return short ? "??" : "Язык не выбран";
     if (short) {
-        switch (code.toLowerCase()) {
-            case 'english': return 'EN';
-            case 'spanish': return 'ES';
-            case 'german': return 'DE';
-            // Добавьте другие языки
-            default: return code.isNotEmpty ? code.toUpperCase().substring(0, (code.length > 1 ? 2:1) ) : "";
-        }
+      switch (code.toLowerCase()) {
+        case 'english':
+          return 'EN';
+        case 'spanish':
+          return 'ES';
+        case 'german':
+          return 'DE';
+        default:
+          return code.toUpperCase().substring(0, math.min(2, code.length));
+      }
+    } else {
+      switch (code.toLowerCase()) {
+        case 'english':
+          return 'Английский';
+        case 'spanish':
+          return 'Испанский';
+        case 'german':
+          return 'Немецкий';
+        default:
+          return code[0].toUpperCase() + code.substring(1);
+      }
     }
-    switch (code.toLowerCase()) {
-        case 'english': return 'Английский';
-        case 'spanish': return 'Испанский';
-        case 'german': return 'Немецкий';
-        // Добавьте другие языки
-        default: return code; // По умолчанию показываем код
+  }
+
+  Map<String, List<Lesson>> _groupLessonsByLevel() {
+    Map<String, List<Lesson>> lessonsByLevelMap = {};
+    for (var lesson in _allLessonsForCurrentLanguage) {
+      String levelKey = _levelOrder.contains(lesson.requiredLevel)
+          ? lesson.requiredLevel
+          : 'Прочее';
+      lessonsByLevelMap.putIfAbsent(levelKey, () => []).add(lesson);
     }
+    return lessonsByLevelMap;
+  }
+
+  List<String> _getLevelsToDisplay(
+      Map<String, List<Lesson>> lessonsByLevelMap) {
+    List<String> levelsToDisplay = List.from(_levelOrder);
+    if (lessonsByLevelMap.containsKey('Прочее') &&
+        (lessonsByLevelMap['Прочее']?.isNotEmpty ?? false)) {
+      if (!levelsToDisplay.contains('Прочее')) {
+        levelsToDisplay.add('Прочее');
+      }
+    }
+    return levelsToDisplay;
   }
 
   Widget _buildBody() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator(color: Colors.teal[700], strokeWidth: 3));
+      return Center(
+          child:
+              CircularProgressIndicator(color: accentYellow, strokeWidth: 4));
     }
-
     if (_errorMessage != null) {
-       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(25.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline_rounded, color: Colors.red[600], size: 70),
-              SizedBox(height: 20),
-              Text(_errorMessage!, style: TextStyle(fontSize: 18, color: Colors.red[800], fontWeight: FontWeight.w500), textAlign: TextAlign.center),
-              SizedBox(height: 30),
-              ElevatedButton.icon(
-                icon: Icon(Icons.refresh_rounded),
-                label: Text("Попробовать снова", style: TextStyle(fontSize: 16)),
-                onPressed: () => _initializePage(), // Повторная инициализация
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal[600], // Цвет кнопки
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
-                ),
-              )
-            ],
-          ),
-        )
-      );
+      return Center(
+          child: Padding(
+              padding: const EdgeInsets.all(30.0),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.sentiment_very_dissatisfied_rounded,
+                        color: Colors.white.withOpacity(0.7), size: 80),
+                    const SizedBox(height: 20),
+                    Text(_errorMessage!,
+                        style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 30),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.refresh_rounded,
+                          color: Colors.white),
+                      label: const Text("Попробовать снова",
+                          style: TextStyle(fontSize: 16, color: Colors.white)),
+                      onPressed: () => _initializePage(),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryOrange,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 25, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12))),
+                    )
+                  ])));
     }
-
     if (_currentUserData == null) {
-      // Это состояние не должно достигаться, если _handleUnauthenticatedUser работает правильно
-      return const Center(child: Text("Нет данных пользователя. Пожалуйста, перезапустите приложение.", style: TextStyle(fontSize: 16)));
+      return const Center(
+          child: Text("Нет данных пользователя.",
+              style: TextStyle(fontSize: 16, color: Colors.white70)));
     }
 
-    // Группируем уроки по требуемому уровню
-    Map<String, List<Lesson>> lessonsByLevelMap = {};
-    for (var lesson in _allLessonsForCurrentLanguage) {
-      // Используем requiredLevel урока для группировки
-      String levelKey = _levelOrder.contains(lesson.requiredLevel) ? lesson.requiredLevel : 'Прочее';
-      lessonsByLevelMap.putIfAbsent(levelKey, () => []).add(lesson);
-    }
-    
-    // Получаем текущий уровень пользователя для активного языка
-    final userCurrentLevel = _currentUserData!.languageSettings!.learningProgress[_currentLearningLanguage]?.level ?? 'NotStarted';
-    final userLessonProgress = _currentUserData!.languageSettings!.learningProgress[_currentLearningLanguage]?.lessonsCompleted ?? {};
+    final lessonsByLevelMap = _groupLessonsByLevel();
+    final levelsToDisplay = _getLevelsToDisplay(lessonsByLevelMap);
+    final String userCurrentLevel = _currentUserData!.languageSettings
+            ?.learningProgress[_currentLearningLanguage]?.level ??
+        '';
+    final Map<String, int> userLessonProgress = _currentUserData!
+            .languageSettings
+            ?.learningProgress[_currentLearningLanguage]
+            ?.lessonsCompleted ??
+        {};
 
     List<Widget> adventurePathWidgets = [];
-    bool previousLevelConsideredUnlocked = true; // Начинаем с того, что "нулевой" уровень (до Beginner) пройден
+    bool previousLevelConsideredUnlocked = true;
 
-    for (String levelName in _levelOrder) {
+    for (int i = 0; i < levelsToDisplay.length; i++) {
+      String levelName = levelsToDisplay[i];
       final lessonsInThisLevel = lessonsByLevelMap[levelName] ?? [];
-      // Доступен ли этот уровень В ПРИНЦИПЕ по уровню пользователя (независимо от прохождения предыдущих)
-      bool isLevelGloballyAccessibleByUser = _isLevelEffectivelyAccessible(userCurrentLevel, levelName);
-      
-      // Эффективно ли разблокирована текущая секция (уровень пользователя позволяет И предыдущий уровень пройден)
-      bool currentSectionEffectivelyUnlocked = isLevelGloballyAccessibleByUser && previousLevelConsideredUnlocked;
+      bool isLevelGloballyAccessibleByUser =
+          _isLevelEffectivelyAccessible(userCurrentLevel, levelName);
+      bool currentSectionEffectivelyUnlocked =
+          isLevelGloballyAccessibleByUser && previousLevelConsideredUnlocked;
 
-      // Пропускаем рендеринг секции 'Прочее', если в ней нет уроков
-      if (levelName == 'Прочее' && lessonsInThisLevel.isEmpty) {
-        continue;
-      }
-
-      adventurePathWidgets.add(
-        _AdventureLevelSection(
-          levelName: levelName,
-          lessons: lessonsInThisLevel,
-          userLevel: userCurrentLevel, // Текущий уровень пользователя для этого языка
-          userLessonProgress: userLessonProgress, // Прогресс по урокам для этого языка
-          isEffectivelyUnlocked: currentSectionEffectivelyUnlocked,
-          onLessonTap: _navigateToLesson,
-          isAdmin: _isAdmin,
-          onDeleteLesson: _deleteLesson,
-          levelColor: _levelColors[levelName] ?? Colors.grey,
-          levelIcon: _levelIcons[levelName] ?? Icons.error_outline,
-        )
+      Widget sectionWidget = _AdventureLevelSection(
+        levelName: levelName, lessons: lessonsInThisLevel,
+        userLevel: userCurrentLevel,
+        userLessonProgress: userLessonProgress,
+        isEffectivelyUnlocked: currentSectionEffectivelyUnlocked,
+        onLessonTap: _navigateToLesson, isAdmin: _isAdmin,
+        onDeleteLesson: _deleteLesson,
+        levelColor: _levelColors[levelName] ?? accentYellow, // Цвет уровня
+        levelIcon: _levelIcons[levelName] ?? Icons.flag_circle_rounded,
       );
-      
-      // Логика для разблокировки следующего уровня:
-      // Следующий уровень считается доступным, если:
-      // 1. Текущий уровень был эффективно разблокирован.
-      // 2. Все уроки в текущем эффективно разблокированном уровне пройдены (progress >= 100).
-      // Если в текущем разблокированном уровне нет уроков, то доступность следующего зависит от предыдущего.
-      if (currentSectionEffectivelyUnlocked && lessonsInThisLevel.isNotEmpty) {
-          bool allLessonsInThisLevelDone = lessonsInThisLevel.every((l) => (userLessonProgress[l.id] ?? 0) >= 100);
-          previousLevelConsideredUnlocked = allLessonsInThisLevelDone;
-      } else if (!currentSectionEffectivelyUnlocked) {
-          // Если текущая секция заблокирована, то и все последующие тоже будут считаться заблокированными с точки зрения "прохождения"
-          previousLevelConsideredUnlocked = false;
-      }
-      // Если уроков в текущем разблокированном уровне нет, то previousLevelConsideredUnlocked не меняется,
-      // и доступность следующего уровня будет зависеть от того, был ли пройден предыдущий уровень с уроками.
 
-      // Добавляем соединитель пути, если это не последний уровень в _levelOrder
-      if (levelName != _levelOrder.last && _levelOrder.indexOf(levelName) < _levelOrder.length -1) {
-        // Определяем, будет ли следующий уровень доступен по уровню пользователя
-        String nextLevelName = _levelOrder[_levelOrder.indexOf(levelName) + 1];
-        bool isNextLevelAccessibleByLevel = _isLevelEffectivelyAccessible(userCurrentLevel, nextLevelName);
-        
-        adventurePathWidgets.add(
-          _PathConnector(
-            // Соединитель "разблокирован", если текущий уровень пройден И следующий уровень доступен по знаниям
-            isUnlocked: currentSectionEffectivelyUnlocked && previousLevelConsideredUnlocked && isNextLevelAccessibleByLevel,
-            color: _levelColors[nextLevelName] ?? Colors.grey, // Цвет следующего уровня
-          )
+      if (i < _sectionAppearAnimations.length) {
+        // Проверяем, что анимация для этой секции существует
+        sectionWidget = ScaleTransition(
+          scale: Tween<double>(begin: 0.7, end: 1.0)
+              .animate(_sectionAppearAnimations[i]),
+          child: FadeTransition(
+              opacity: _sectionAppearAnimations[i], child: sectionWidget),
         );
       }
+      adventurePathWidgets.add(sectionWidget);
+
+      if (currentSectionEffectivelyUnlocked && lessonsInThisLevel.isNotEmpty) {
+        previousLevelConsideredUnlocked = lessonsInThisLevel
+            .every((l) => (userLessonProgress[l.id] ?? 0) >= 100);
+      } else if (!currentSectionEffectivelyUnlocked) {
+        previousLevelConsideredUnlocked = false;
+      }
+
+      if (i < levelsToDisplay.length - 1) {
+        String nextLevelNameInDisplay = levelsToDisplay[i + 1];
+        bool isNextLevelTheoreticallyAccessible = _isLevelEffectivelyAccessible(
+            userCurrentLevel, nextLevelNameInDisplay);
+        adventurePathWidgets.add(_PathConnector(
+          isUnlocked: previousLevelConsideredUnlocked &&
+              isNextLevelTheoreticallyAccessible,
+          color: _levelColors[nextLevelNameInDisplay] ?? darkOrange,
+        ));
+      }
     }
 
-    // Если список пуст (например, для нового языка еще нет уроков в БД)
-    if (_allLessonsForCurrentLanguage.isEmpty && !_isLoading) {
-       adventurePathWidgets.add(
-        Center(
+    if (adventurePathWidgets.whereType<_AdventureLevelSection>().isEmpty &&
+        !_isLoading) {
+      adventurePathWidgets.add(Center(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 40.0, horizontal: 20.0),
-            child: Column(
-              children: [
-                Icon(Icons.explore_off_rounded, size: 80, color: Colors.grey[500]),
-                SizedBox(height: 20),
-                Text(
-                  "Уроки для языка '${_getLanguageDisplayName(_currentLearningLanguage)}' скоро появятся!",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, color: Colors.grey[700], fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ),
-        )
-      );
+              padding:
+                  const EdgeInsets.symmetric(vertical: 40.0, horizontal: 20.0),
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.map_outlined,
+                        size: 90, color: Colors.white.withOpacity(0.5)),
+                    const SizedBox(height: 20),
+                    Text(
+                        "Уроки для '${_getLanguageDisplayName(_currentLearningLanguage)}' в разработке!",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 18,
+                            color: textOnOrange.withOpacity(0.8),
+                            fontWeight: FontWeight.w500)),
+                  ]))));
     }
-
 
     return FadeTransition(
-      opacity: _fadeAnimation,
-      child: Container(
-        // Фоновое изображение для "Пути Приключений"
-        decoration: BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage("images/adventure_background.png"), // ЗАМЕНИТЕ НА СВОЙ ФОН
-            fit: BoxFit.cover,
-            colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.2), BlendMode.dstATop) // Легкое затемнение фона
-          ),
-        ),
-        child: ListView(
-          padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
-          children: adventurePathWidgets,
-        ),
+      opacity: _pageFadeAnimation,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(12.0, 15.0, 12.0, 80.0),
+        children: adventurePathWidgets,
       ),
     );
   }
-  
-  // Проверяет, доступен ли requiredLevel на основе текущего уровня пользователя userLevel
-  bool _isLevelEffectivelyAccessible(String userLevel, String requiredLevel) {
-    int userLevelIndex = _levelOrder.indexOf(userLevel);
-    int requiredLevelIndex = _levelOrder.indexOf(requiredLevel);
 
-    // Если уровень пользователя не найден в _levelOrder (например, "NotStarted" или кастомный),
-    // считаем его ниже Beginner, если это не сам Beginner.
-    if (userLevelIndex == -1 && userLevel.toLowerCase() != 'notstarted') {
-      // Это может быть кастомный уровень или ошибка. Безопаснее считать его начальным.
-      userLevelIndex = 0; // Предполагаем, что это Beginner или что-то перед ним.
+  bool _isLevelEffectivelyAccessible(
+      String userCurrentLevel, String requiredLessonLevel) {
+    int userLevelIndex = _levelOrder.indexOf(userCurrentLevel);
+    int requiredLevelIndex = _levelOrder.indexOf(requiredLessonLevel);
+    if (requiredLevelIndex == -1) {
+      if (requiredLessonLevel == 'Прочее') return true;
+      return false;
     }
-    
-    // Специальная обработка для "NotStarted"
-    if (userLevel.toLowerCase() == 'notstarted') {
-        return requiredLevel == 'Beginner'; // Только Beginner доступен, если уровень "NotStarted"
+    if (userCurrentLevel.isEmpty ||
+        userCurrentLevel.toLowerCase() == "begginer") {
+      return requiredLevelIndex <= 0;
     }
-
+    if (userLevelIndex == -1) {
+      return false;
+    }
     return userLevelIndex >= requiredLevelIndex;
   }
-  
+
   BottomNavigationBar _buildBottomNavigationBar() {
-    // UI для BottomNavigationBar
+    Color selectedColor = darkOrange;
+    Color unselectedColor = primaryOrange.withOpacity(0.7);
+
     return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed, // Чтобы все метки были видны
+      type: BottomNavigationBarType.fixed,
       currentIndex: _bottomNavSelectedIndex,
       onTap: (index) {
-        if (!mounted) return;
-        // Не перезагружать страницу, если мы уже на ней (особенно для LearnPage)
-        if (_bottomNavSelectedIndex == index && index == 0) return; 
-
-        setState(() { _bottomNavSelectedIndex = index; });
-        // Навигация
+        if (!mounted || (_bottomNavSelectedIndex == index && index == 0))
+          return;
+        setState(() {
+          _bottomNavSelectedIndex = index;
+        });
         switch (index) {
-          case 0: /* Уже на LearnPage */ break; 
-          case 1: Navigator.pushReplacementNamed(context, '/games'); break;
-          case 2: Navigator.pushReplacementNamed(context, '/notifications'); break; // Или '/chats'
-          case 3: Navigator.pushReplacementNamed(context, '/settings'); break;
-          case 4: Navigator.pushReplacementNamed(context, '/profile'); break;
+          case 0:
+            break;
+          case 1:
+            Navigator.pushReplacementNamed(context, '/games');
+            break;
+          case 2:
+            Navigator.pushReplacementNamed(context, '/chats');
+            break;
+          case 3:
+            Navigator.pushReplacementNamed(context, '/modules_view');
+            break;
+          case 4:
+            Navigator.pushReplacementNamed(context, '/profile');
+            break;
         }
       },
-      selectedItemColor: Colors.teal[800], // Цвет активного элемента
-      unselectedItemColor: Colors.grey[700], // Цвет неактивных элементов
-      selectedLabelStyle: TextStyle(fontWeight: FontWeight.w600),
-      unselectedLabelStyle: TextStyle(fontWeight: FontWeight.normal),
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: 'Путь'), // Иконка для "Пути"
-        BottomNavigationBarItem(icon: Icon(Icons.sports_esports_rounded), label: 'Играть'),
-        BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_rounded), label: 'Чаты'), // Если есть чаты
-        BottomNavigationBarItem(icon: Icon(Icons.settings_rounded), label: 'Настройки'),
-        BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Профиль'),
+      selectedItemColor: selectedColor,
+      unselectedItemColor: unselectedColor,
+      backgroundColor: Colors.white,
+      elevation: 15.0, // Увеличим тень
+      iconSize: 28, // Немного больше иконки
+      selectedLabelStyle: TextStyle(
+          fontWeight: FontWeight.bold, fontSize: 12, color: selectedColor),
+      unselectedLabelStyle: TextStyle(
+          fontWeight: FontWeight.w500, fontSize: 11.5, color: unselectedColor),
+      items: [
+        BottomNavigationBarItem(
+            icon: Icon(Icons.terrain_outlined),
+            activeIcon: Icon(Icons.terrain_rounded, color: selectedColor),
+            label: 'Путь'),
+        BottomNavigationBarItem(
+            icon: Icon(Icons.extension_outlined),
+            activeIcon: Icon(Icons.extension_rounded, color: selectedColor),
+            label: 'Игры'), // puzzle
+        BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat_rounded, color: selectedColor),
+            label: 'Чаты'),
+        BottomNavigationBarItem(
+            icon: Icon(Icons.tune_outlined),
+            activeIcon: Icon(Icons.book, color: selectedColor),
+            label: 'Материал'),
+        BottomNavigationBarItem(
+            icon: Icon(Icons.person_pin_circle_outlined),
+            activeIcon:
+                Icon(Icons.person_pin_circle_rounded, color: selectedColor),
+            label: 'Профиль'),
       ],
     );
   }
 }
 
-// ---- ВИДЖЕТ ДЛЯ СЕКЦИИ УРОВНЯ НА КАРТЕ ----
+// ---- ВИДЖЕТ ДЛЯ СЕКЦИИ УРОВНЯ НА КАРТЕ (_AdventureLevelSection) ----
 class _AdventureLevelSection extends StatelessWidget {
   final String levelName;
   final List<Lesson> lessons;
-  final String userLevel; // Текущий уровень пользователя для этого языка
-  final Map<String, int> userLessonProgress; // Прогресс по урокам
-  final bool isEffectivelyUnlocked; // Секция в целом разблокирована?
+  final String userLevel;
+  final Map<String, int> userLessonProgress;
+  final bool isEffectivelyUnlocked;
   final Function(Lesson lesson) onLessonTap;
   final bool isAdmin;
   final Function(Lesson lesson) onDeleteLesson;
@@ -770,120 +1090,175 @@ class _AdventureLevelSection extends StatelessWidget {
     required this.levelIcon,
   }) : super(key: key);
 
-  // Статический список уровней для проверки доступности конкретного урока внутри секции
-  static const List<String> _levelOrderStatic = ['Beginner', 'Elementary', 'Intermediate', 'Upper Intermediate', 'Advanced'];
-
+  static const List<String> _levelOrderStatic = [
+    'Beginner',
+    'Elementary',
+    'Intermediate',
+    'Upper Intermediate',
+    'Advanced'
+  ];
 
   @override
   Widget build(BuildContext context) {
-    // Не рисовать секцию (кроме Beginner), если она заблокирована и в ней нет уроков
-    // (чтобы не было пустых заблокированных карточек, кроме самого начала)
-    if (lessons.isEmpty && levelName != "Beginner" && !isEffectivelyUnlocked) {
-      return SizedBox.shrink();
+    // Цвета для заголовка и иконки секции
+    final Color titleColor =
+        isEffectivelyUnlocked ? Colors.white : Colors.grey.shade300;
+    final Color iconColor =
+        isEffectivelyUnlocked ? levelColor : Colors.grey.shade400;
+    final Color iconBgColor = isEffectivelyUnlocked
+        ? Colors.white.withOpacity(0.2)
+        : Colors.grey.withOpacity(0.1);
+
+    if (lessons.isEmpty &&
+        levelName != _AdventureLevelSection._levelOrderStatic.first &&
+        !isEffectivelyUnlocked) {
+      return const SizedBox.shrink();
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 10.0, top: 10.0), // Отступы между секциями
-      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 12.0),
+      margin: const EdgeInsets.only(bottom: 12.0, top: 12.0),
+      padding: const EdgeInsets.all(1.0),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(isEffectivelyUnlocked ? 0.92 : 0.75), // Прозрачность для заблокированных
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isEffectivelyUnlocked ? levelColor.withOpacity(0.7) : Colors.grey[400]!.withOpacity(0.5), 
-          width: 2.5
-        ),
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+            colors: isEffectivelyUnlocked
+                // Используем darken/lighten или withOpacity вместо .shadeX00
+                ? [levelColor.lighten(0.1), levelColor.darken(0.1)]
+                : [
+                    Colors.blueGrey.shade200.withOpacity(0.3),
+                    Colors.blueGrey.shade300.withOpacity(0.2)
+                  ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 10,
-            spreadRadius: 1,
-            offset: Offset(0, 5),
-          )
+              color:
+                  Colors.black.withOpacity(isEffectivelyUnlocked ? 0.25 : 0.1),
+              blurRadius: 15,
+              spreadRadius: 0,
+              offset: const Offset(0, 8))
         ],
       ),
-      child: Column(
-        children: [
-          // Заголовок уровня
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: levelColor.withOpacity(isEffectivelyUnlocked ? 0.15 : 0.05),
-                child: Icon(levelIcon, color: isEffectivelyUnlocked ? levelColor : Colors.grey[500], size: 30),
-                radius: 30,
+      child: Container(
+        // Внутренний контейнер для основного фона
+        padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
+        decoration: BoxDecoration(
+          color: isEffectivelyUnlocked
+              ? levelColor.withOpacity(0.85)
+              : Colors.blueGrey.shade200.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(27),
+        ),
+        child: Column(
+          children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: iconBgColor,
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 5,
+                          offset: Offset(1, 1))
+                    ]),
+                child: Icon(levelIcon, color: iconColor, size: 32),
               ),
-              SizedBox(width: 15),
+              const SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  levelName,
-                  style: TextStyle(
-                    fontSize: 22, // Крупнее
-                    fontWeight: FontWeight.bold,
-                    color: isEffectivelyUnlocked ? Colors.black.withOpacity(0.85) : Colors.grey[600],
-                  ),
-                ),
-              ),
+                  child: Text(levelName,
+                      style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: titleColor,
+                          shadows: [
+                            Shadow(
+                                color: Colors.black.withOpacity(0.4),
+                                blurRadius: 3,
+                                offset: Offset(1, 1))
+                          ]))),
               if (!isEffectivelyUnlocked)
-                Icon(Icons.lock_person_rounded, color: Colors.grey[500], size: 30), // Иконка замка
-            ],
-          ),
-          Divider(height: 25, thickness: 1, color: Colors.grey[300]), // Разделитель
+                Icon(Icons.lock_rounded,
+                    color: Colors.white.withOpacity(0.5), size: 32),
+            ]),
+            if (lessons.isNotEmpty ||
+                (lessons.isEmpty && isEffectivelyUnlocked))
+              Divider(
+                  height: 35,
+                  thickness: 1,
+                  color: Colors.white.withOpacity(0.2)),
+            if (lessons.isEmpty && isEffectivelyUnlocked)
+              Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 15.0),
+                  child: Text("Уроки скоро появятся здесь!",
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontStyle: FontStyle.italic,
+                          fontSize: 16)))
+            else if (!isEffectivelyUnlocked)
+              Padding(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 15.0, horizontal: 10.0),
+                  child: Text(
+                      "Завершите предыдущие этапы, чтобы открыть эти знания!",
+                      style: TextStyle(
+                          color: Colors.yellow.shade100,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 15),
+                      textAlign: TextAlign.center))
+            else
+              LayoutBuilder(// Используем LayoutBuilder для адаптивного Wrap
+                  builder: (context, constraints) {
+                int crossAxisCount = (constraints.maxWidth / 100)
+                    .floor(); // Примерно 100px на элемент
+                if (crossAxisCount < 2) crossAxisCount = 2; // Минимум 2 в ряд
+                if (crossAxisCount > 4) crossAxisCount = 4; // Максимум 4 в ряд
 
-          // Тело секции: уроки или сообщение
-          if (lessons.isEmpty && isEffectivelyUnlocked)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20.0),
-              child: Text("Уроки для этого уровня скоро появятся!", style: TextStyle(color: Colors.grey[700], fontStyle: FontStyle.italic, fontSize: 15)),
-            )
-          else if (!isEffectivelyUnlocked) // Если секция заблокирована
-             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 10.0),
-              child: Text("Пройдите предыдущий уровень, чтобы открыть эти уроки.", style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.w500, fontSize: 15), textAlign: TextAlign.center,),
-            )
-          else // Если разблокировано и есть уроки
-            Wrap( // Используем Wrap для адаптивного размещения узлов уроков
-              spacing: 12.0, // Горизонтальный отступ между узлами
-              runSpacing: 15.0, // Вертикальный отступ, если узлы переносятся
-              alignment: WrapAlignment.spaceAround, // Чтобы узлы распределялись лучше
-              children: lessons.map((lesson) {
-                final progress = userLessonProgress[lesson.id] ?? 0;
-                // Доступность конкретного узла урока: секция должна быть разблокирована
-                // И уровень пользователя должен быть не ниже требуемого для этого урока
-                // (на случай, если внутри одной секции есть уроки с под-уровнями)
-                bool isLessonNodeAccessible = isEffectivelyUnlocked && 
-                                               (_levelOrderStatic.indexOf(userLevel) >= _levelOrderStatic.indexOf(lesson.requiredLevel));
-                
-                return _AdventureLessonNode(
-                  lesson: lesson,
-                  progress: progress,
-                  isAccessible: isLessonNodeAccessible,
-                  onTap: () => onLessonTap(lesson),
-                  isAdmin: isAdmin,
-                  onDelete: () => onDeleteLesson(lesson),
-                  baseColor: levelColor, // Передаем базовый цвет уровня
+                return Wrap(
+                  spacing: (constraints.maxWidth - (crossAxisCount * 75)) /
+                          (crossAxisCount > 1 ? crossAxisCount - 1 : 1) -
+                      2, // Динамический spacing
+                  runSpacing: 20.0,
+                  alignment: WrapAlignment.start, // Начинаем слева
+                  children: lessons.map((lesson) {
+                    final progress = userLessonProgress[lesson.id] ?? 0;
+                    return _AdventureLessonNode(
+                      lesson: lesson,
+                      progress: progress,
+                      isAccessible: isEffectivelyUnlocked,
+                      userLevel: userLevel,
+                      onTap: () => onLessonTap(lesson),
+                      isAdmin: isAdmin,
+                      onDelete: () => onDeleteLesson(lesson),
+                      baseColor: levelColor,
+                    );
+                  }).toList(),
                 );
-              }).toList(),
-            ),
-        ],
+              }),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ---- ВИДЖЕТ ДЛЯ УЗЛА УРОКА НА КАРТЕ ----
+// ---- ВИДЖЕТ ДЛЯ УЗЛА УРОКА НА КАРТЕ (_AdventureLessonNode) ----
 class _AdventureLessonNode extends StatelessWidget {
   final Lesson lesson;
   final int progress;
   final bool isAccessible;
+  final String userLevel;
   final VoidCallback onTap;
   final bool isAdmin;
   final VoidCallback onDelete;
-  final Color baseColor; // Базовый цвет, наследуемый от уровня
+  final Color baseColor;
 
   const _AdventureLessonNode({
     Key? key,
     required this.lesson,
     required this.progress,
     required this.isAccessible,
+    required this.userLevel,
     required this.onTap,
     required this.isAdmin,
     required this.onDelete,
@@ -893,118 +1268,174 @@ class _AdventureLessonNode extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     bool isCompleted = progress >= 100;
-    // Цвет узла: зеленый если пройден, базовый цвет уровня если доступен, серый если заблокирован
-    Color activeColor = isCompleted ? Colors.green[600]! : baseColor;
-    Color nodeColor = isAccessible ? activeColor : Colors.grey[400]!;
-    // Иконка узла
-    IconData nodeIconData = isAccessible 
-        ? (isCompleted ? Icons.check_circle_rounded : Icons.stars_rounded) // Звезда для активного, галочка для пройденного
-        : Icons.lock_rounded; // Замок для заблокированного
-
-    // Иконка типа урока (если есть в модели Lesson)
-    IconData lessonTypeIcon = Icons.article_outlined; // Иконка по умолчанию
+    IconData lessonTypeIcon;
     switch (lesson.lessonType.toLowerCase()) {
-      case 'interactive': // Или 'chooseTranslation' как в админке
+      case 'interactive':
       case 'choosetranslation':
-        lessonTypeIcon = Icons.touch_app_rounded; break;
-      case 'audiolesson': lessonTypeIcon = Icons.volume_up_rounded; break;
-      case 'videolesson': lessonTypeIcon = Icons.play_circle_fill_rounded; break;
-      // Добавьте другие типы
+        lessonTypeIcon = Icons.touch_app_rounded;
+        break;
+      case 'audiolesson':
+        lessonTypeIcon = Icons.headphones_rounded;
+        break;
+      case 'videolesson':
+        lessonTypeIcon = Icons.play_circle_filled_rounded;
+        break;
+      case 'newaudiocollection':
+      case 'audiowordbanksentence':
+        lessonTypeIcon = Icons.mic_external_on_rounded;
+        break;
+      default:
+        lessonTypeIcon = Icons.sticky_note_2_rounded;
+    }
+    IconData statusIconData =
+        isCompleted ? Icons.verified_user_rounded : Icons.star_half_rounded;
+
+    bool isLessonActuallyAccessible;
+    if (isAccessible) {
+      int userLevelIndex =
+          _AdventureLevelSection._levelOrderStatic.indexOf(userLevel);
+      int requiredLessonLevelIndex = _AdventureLevelSection._levelOrderStatic
+          .indexOf(lesson.requiredLevel);
+      if (requiredLessonLevelIndex == -1 && lesson.requiredLevel != 'Прочее') {
+        isLessonActuallyAccessible = false;
+      } else if (lesson.requiredLevel == 'Прочее') {
+        isLessonActuallyAccessible = true;
+      } else if (userLevel.isEmpty || userLevel.toLowerCase() == "begginer") {
+        isLessonActuallyAccessible = requiredLessonLevelIndex <= 0;
+      } else if (userLevelIndex == -1) {
+        isLessonActuallyAccessible = false;
+      } else {
+        isLessonActuallyAccessible = userLevelIndex >= requiredLessonLevelIndex;
+      }
+    } else {
+      isLessonActuallyAccessible = false;
     }
 
+    final Color nodeColor = isLessonActuallyAccessible
+        ? (isCompleted ? Colors.green.shade500 : baseColor)
+        : Colors.blueGrey.shade300;
+    final Color iconColor =
+        isLessonActuallyAccessible ? Colors.white : Colors.blueGrey.shade100;
+    final Color textColor = isLessonActuallyAccessible
+        ? Colors.white.withOpacity(0.95)
+        : Colors.blueGrey.shade100.withOpacity(0.8);
 
     return Opacity(
-      opacity: isAccessible ? 1.0 : 0.65, // Меньшая прозрачность для заблокированных
+      opacity: isLessonActuallyAccessible ? 1.0 : 0.6,
       child: Column(
-        mainAxisSize: MainAxisSize.min, // Чтобы колонка занимала минимум места
+        mainAxisSize: MainAxisSize.min,
         children: [
-          InkWell(
-            onTap: isAccessible ? onTap : null,
-            borderRadius: BorderRadius.circular(35), // Радиус для эффекта нажатия
-            child: Container(
-              width: 70, // Размер узла
-              height: 70,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient( // Градиент для объема
-                  colors: isAccessible 
-                    ? [nodeColor.withOpacity(0.5), nodeColor] 
-                    : [nodeColor.withOpacity(0.3), nodeColor.withOpacity(0.7)],
-                  center: Alignment(0.3, -0.3), // Смещение центра для эффекта света
+          SizedBox(
+            // Дополнительный SizedBox для тени и InkWell
+            width: 80, height: 80,
+            child: Material(
+              // Material для InkWell и тени
+              color: Colors.transparent,
+              elevation: isLessonActuallyAccessible ? 6.0 : 0.0,
+              shadowColor: nodeColor.withOpacity(0.5),
+              shape: const CircleBorder(),
+              child: InkWell(
+                onTap: isLessonActuallyAccessible ? onTap : null,
+                borderRadius: BorderRadius.circular(40),
+                splashColor: Colors.white.withOpacity(0.3),
+                highlightColor: Colors.white.withOpacity(0.15),
+                child: Container(
+                  width: 75, height: 75, // Немного больше сам узел
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                        // Градиент для узла
+                        colors: isLessonActuallyAccessible
+                            ? [nodeColor.lighten(0.1), nodeColor.darken(0.1)]
+                            : [
+                                nodeColor.withOpacity(0.7),
+                                nodeColor.withOpacity(0.5)
+                              ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(
+                            isLessonActuallyAccessible ? 0.5 : 0.2),
+                        width: 2),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(
+                          isLessonActuallyAccessible
+                              ? lessonTypeIcon
+                              : Icons.lock_rounded,
+                          color: iconColor,
+                          size: 36), // Крупнее иконка
+                      if (isLessonActuallyAccessible &&
+                          !isCompleted &&
+                          progress > 0)
+                        Positioned(
+                          child: SizedBox(
+                            width: 73,
+                            height: 73,
+                            child: CircularProgressIndicator(
+                              value: progress / 100,
+                              strokeWidth: 4,
+                              backgroundColor: Colors.white.withOpacity(0.15),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.lightGreenAccent.shade200),
+                            ),
+                          ),
+                        ),
+                      if (isLessonActuallyAccessible && isCompleted)
+                        Positioned(
+                            top: 5,
+                            right: 5,
+                            child: Icon(statusIconData,
+                                color: Colors.yellowAccent.shade100,
+                                size: 22)) // Ярче статус
+                      else if (isLessonActuallyAccessible &&
+                          !isCompleted &&
+                          progress == 0)
+                        Positioned(
+                            top: 5,
+                            right: 5,
+                            child: Icon(statusIconData,
+                                color: Colors.white.withOpacity(0.5),
+                                size: 18)),
+
+                      if (isAdmin && isLessonActuallyAccessible)
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          child: InkWell(
+                              onTap: onDelete,
+                              borderRadius: BorderRadius.circular(10),
+                              child: CircleAvatar(
+                                  radius: 11,
+                                  backgroundColor: Colors.red.withOpacity(0.7),
+                                  child: const Icon(Icons.delete_outline,
+                                      color: Colors.white, size: 13))),
+                        ),
+                    ],
+                  ),
                 ),
-                border: Border.all(
-                  color: isAccessible ? nodeColor.withOpacity(0.9) : Colors.grey[500]!, 
-                  width: 3
-                ),
-                boxShadow: isAccessible ? [ // Тень только для доступных
-                  BoxShadow(color: nodeColor.withOpacity(0.4), blurRadius: 8, spreadRadius: 0, offset: Offset(2,2))
-                ] : [],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Основная иконка (статус или тип урока)
-                  Icon(isAccessible ? lessonTypeIcon : nodeIconData, color: Colors.white.withOpacity(isAccessible ? 0.9 : 0.6), size: 32),
-                  // Иконка статуса поверх (если урок доступен)
-                  if (isAccessible)
-                    Positioned(
-                      top: 5,
-                      left: 5,
-                      child: Icon(
-                        isCompleted ? Icons.check_circle_outline_rounded : Icons.star_outline, 
-                        color: Colors.white.withOpacity(0.8), 
-                        size: 18
-                      )
-                    ),
-                  // Прогресс, если урок начат, но не завершен
-                  if (isAccessible && progress > 0 && !isCompleted)
-                    Positioned(
-                      bottom: 6,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(4)
-                        ),
-                        child: Text(
-                          "$progress%",
-                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  // Кнопка удаления для админа
-                  if (isAdmin && isAccessible)
-                    Positioned(
-                      top: -2, // Небольшое смещение для лучшего вида
-                      right: -2,
-                      child: InkWell(
-                        onTap: onDelete,
-                        child: CircleAvatar(
-                          radius: 13, // Размер кнопки удаления
-                          backgroundColor: Colors.redAccent.withOpacity(0.85),
-                          child: Icon(Icons.close_rounded, color: Colors.white, size: 15),
-                        ),
-                      ),
-                    ),
-                ],
               ),
             ),
           ),
-          SizedBox(height: 8),
-          // Название урока
+          const SizedBox(height: 10),
           SizedBox(
-            width: 80, // Ограничиваем ширину текста, чтобы он переносился
-            child: Text(
-              lesson.title,
-              textAlign: TextAlign.center,
-              maxLines: 2, // Максимум 2 строки
-              overflow: TextOverflow.ellipsis, // Многоточие, если не помещается
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-                color: isAccessible ? Colors.black.withOpacity(0.75) : Colors.grey[600],
-              ),
-            ),
+            width: 85,
+            child: Text(lesson.title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                    shadows: [
+                      Shadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 1,
+                          offset: Offset(0, 1))
+                    ])),
           ),
         ],
       ),
@@ -1012,22 +1443,23 @@ class _AdventureLessonNode extends StatelessWidget {
   }
 }
 
-// ---- ВИДЖЕТ ДЛЯ СОЕДИНИТЕЛЬНОЙ ТРОПИНКИ МЕЖДУ УРОВНЯМИ ----
+// ---- ВИДЖЕТ ДЛЯ СОЕДИНИТЕЛЬНОЙ ТРОПИНКИ МЕЖДУ УРОВНЯМИ (_PathConnector и _PathPainter) ----
 class _PathConnector extends StatelessWidget {
-  final bool isUnlocked; // Разблокирован ли путь к следующему уровню
-  final Color color; // Цвет пути (обычно цвет следующего уровня)
-  const _PathConnector({Key? key, required this.isUnlocked, required this.color}) : super(key: key);
+  final bool isUnlocked;
+  final Color color;
+  const _PathConnector(
+      {Key? key, required this.isUnlocked, required this.color})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 50, // Высота соединителя
-      alignment: Alignment.center,
-      child: CustomPaint(
-        size: Size(20, 50), // Ширина и высота области рисования
-        painter: _PathPainter(isUnlocked: isUnlocked, pathColor: color),
-      ),
-    );
+    return SizedBox(
+        height: 70, // Длиннее
+        width: 80, // Шире для более выраженного изгиба
+        child: CustomPaint(
+            painter: _PathPainter(
+                isUnlocked: isUnlocked,
+                pathColor: color.withOpacity(isUnlocked ? 0.9 : 0.5))));
   }
 }
 
@@ -1039,42 +1471,86 @@ class _PathPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = isUnlocked ? pathColor.withOpacity(0.8) : Colors.grey[400]!.withOpacity(0.7)
+      ..color = pathColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 5 // Толще тропинка
-      ..strokeCap = StrokeCap.round; // Скругленные концы
+      ..strokeWidth = 7 // Толще
+      ..strokeCap = StrokeCap.round;
+
+    final path = Path();
+    path.moveTo(size.width / 2, 0);
+
+    // Случайный изгиб для "живости"
+    double controlPointXOffset =
+        (math.Random().nextDouble() * 40.0) - 20.0; // от -20 до +20
 
     if (isUnlocked) {
-      // Сплошная линия для разблокированного пути
-      canvas.drawLine(Offset(size.width / 2, 0), Offset(size.width / 2, size.height), paint);
+      path.cubicTo(
+          size.width / 2 + controlPointXOffset,
+          size.height * 0.33, // Первая контрольная точка
+          size.width / 2 - controlPointXOffset,
+          size.height * 0.66, // Вторая контрольная точка (зеркально)
+          size.width / 2,
+          size.height // Конечная точка
+          );
+      canvas.drawPath(path, paint);
+
+      // Добавляем пунктир поверх сплошной линии для текстуры
+      final dashPaint = Paint()
+        ..color = Colors.white.withOpacity(0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round;
+
+      double dashLength = 4;
+      double gapLength = 3;
+      final metrics = path.computeMetrics();
+      for (final metric in metrics) {
+        double distance = 0;
+        bool draw = true;
+        while (distance < metric.length) {
+          if (draw) {
+            canvas.drawPath(
+                metric.extractPath(distance, distance + dashLength), dashPaint);
+          }
+          distance +=
+              (draw ? dashLength : gapLength) + gapLength; // чередование
+          draw = !draw;
+        }
+      }
     } else {
-      // Пунктирная линия для заблокированного пути
+      // Пунктир для заблокированного
+      paint.strokeWidth = 4; // Тоньше для заблокированного
       double dashHeight = 6;
-      double dashSpace = 4;
+      double dashSpace = 5;
       double startY = 0;
       while (startY < size.height) {
-        canvas.drawLine(Offset(size.width / 2, startY), Offset(size.width / 2, startY + dashHeight), paint);
+        canvas.drawLine(Offset(size.width / 2, startY),
+            Offset(size.width / 2, startY + dashHeight), paint);
         startY += dashHeight + dashSpace;
       }
-    }
-    
-    // Рисуем стрелку вниз, если путь разблокирован и есть место
-    if (isUnlocked && size.height > 10) { // Рисуем стрелку только если есть место
-      final arrowPaint = Paint()
-        ..color = pathColor // Цвет стрелки совпадает с цветом пути
-        ..style = PaintingStyle.fill;
-      Path path = Path();
-      double arrowSize = 6; // Размер стрелки
-      // Рисуем треугольник-стрелку
-      path.moveTo(size.width / 2 - arrowSize, size.height - (arrowSize * 1.5)); // Смещаем стрелку чуть выше от нижнего края
-      path.lineTo(size.width / 2 + arrowSize, size.height - (arrowSize * 1.5));
-      path.lineTo(size.width / 2, size.height - (arrowSize * 0.5)); // Вершина стрелки
-      path.close();
-      canvas.drawPath(path, arrowPaint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _PathPainter oldDelegate) => 
-    oldDelegate.isUnlocked != isUnlocked || oldDelegate.pathColor != pathColor;
+  bool shouldRepaint(covariant _PathPainter oldDelegate) =>
+      oldDelegate.isUnlocked != isUnlocked ||
+      oldDelegate.pathColor != pathColor;
+}
+
+// Расширения для Color для удобства затемнения/осветления
+extension ColorUtils on Color {
+  Color darken([double amount = .1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
+  }
+
+  Color lighten([double amount = .1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslLight =
+        hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0));
+    return hslLight.toColor();
+  }
 }

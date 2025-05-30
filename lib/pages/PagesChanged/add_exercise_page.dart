@@ -280,25 +280,25 @@ class _AdminAddInteractiveLessonPageState
     return Scaffold(
         appBar: AppBar(
         // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white), // Иконка "Назад"
-          tooltip: "Назад",
-          onPressed: () {
-            // Это стандартное действие для возврата на предыдущую страницу в стеке навигации
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            } else {
-              // Если вернуться некуда (например, это первая страница после входа в админку),
-              // можно предусмотреть переход на главную страницу админки,
-              // если она у вас есть и вы знаете ее маршрут.
-              // Например: Navigator.pushReplacementNamed(context, '/adminHome');
-              // Пока оставим просто pop, если это возможно.
-            }
-          },
-        ),
+        // leading: IconButton(
+        //   icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white), // Иконка "Назад"
+        //   tooltip: "Назад",
+        //   onPressed: () {
+        //     // Это стандартное действие для возврата на предыдущую страницу в стеке навигации
+        //     if (Navigator.canPop(context)) {
+        //       Navigator.pop(context);
+        //     } else {
+        //       // Если вернуться некуда (например, это первая страница после входа в админку),
+        //       // можно предусмотреть переход на главную страницу админки,
+        //       // если она у вас есть и вы знаете ее маршрут.
+        //       // Например: Navigator.pushReplacementNamed(context, '/adminHome');
+        //       // Пока оставим просто pop, если это возможно.
+        //     }
+        //   },
+        // ),
         // --- КОНЕЦ ИЗМЕНЕНИЙ ---
         title: Text("Добавить урок: Выбор перевода"),
-        backgroundColor: Colors.deepPurpleAccent,
+        backgroundColor: Colors.orange,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

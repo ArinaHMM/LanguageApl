@@ -1,135 +1,212 @@
+// lib/pages/GamePages/AntonymPage.dart
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math';
 
 class AntonymMatchingPage extends StatefulWidget {
+  final String languageCode;
+
+  const AntonymMatchingPage({Key? key, required this.languageCode})
+      : super(key: key);
+
   @override
   _AntonymMatchingPageState createState() => _AntonymMatchingPageState();
 }
 
+class WordPair {
+  final String word;
+  final String antonym;
+  bool isMatched;
+  WordPair(this.word, this.antonym, {this.isMatched = false});
+}
+
 class _AntonymMatchingPageState extends State<AntonymMatchingPage> {
-  List<Map<String, String>> antonymPairs = [];
-  List<String> leftOptions = [];
-  List<String> rightOptions = [];
-  List<bool> leftMatchStatus = [];
-  List<bool> rightMatchStatus = [];
-  bool isLoading = true;
-  int currentPage = 0; // Текущая страница
-  int totalMatchedPairs = 0; // Общее количество найденных пар
-  final int pairsPerPage = 3; // Количество пар на одной странице
+  // --- Цвета и стили ---
+  final Color appBarColor =
+      const Color.fromARGB(255, 255, 162, 40); // Бирюзовый
+  final Color backgroundColor =
+      const Color.fromARGB(255, 252, 194, 70); // Очень светло-бирюзовый
+  final Color cardColor = Colors.white;
+  final Color selectedCardColor =
+      const Color.fromARGB(255, 253, 137, 28); // Светло-желтый для выбранной
+  final Color matchedCardColor =
+      const Color(0xFFA5D6A7); // Светло-зеленый для совпавшей
+  final Color textColor = const Color(0xFF004D40); // Темно-бирюзовый для текста
+  final Color matchedTextColor = Colors.grey.shade600;
+  // ---------------------
+
+  late List<WordPair> _allPairs;
+  List<SelectableItem> _displayItemsWithState = [];
+
+  int? _selectedIndex1;
+  int? _selectedIndex2;
+  int _score = 0;
+  bool _ignoreTaps = false;
+
+  final Map<String, List<WordPair>> _antonymsByLanguage = {
+    'english': [
+      WordPair('HOT', 'COLD'),
+      WordPair('BIG', 'SMALL'),
+      /* ... другие ... */ WordPair('UP', 'DOWN'),
+      WordPair('OPEN', 'CLOSED'),
+      WordPair('FAST', 'SLOW'),
+      WordPair('HAPPY', 'SAD')
+    ],
+    'spanish': [
+      WordPair('CALIENTE', 'FRÍO'),
+      WordPair('GRANDE', 'PEQUEÑO'),
+      /* ... */ WordPair('ARRIBA', 'ABAJO'),
+      WordPair('ABIERTO', 'CERRADO'),
+      WordPair('RÁPIDO', 'LENTO'),
+      WordPair('FELIZ', 'TRISTE')
+    ],
+    'german': [
+      WordPair('HEISS', 'KALT'),
+      WordPair('GROß', 'KLEIN'),
+      /* ... */ WordPair('OBEN', 'UNTEN'),
+      WordPair('OFFEN', 'GESCHLOSSEN'),
+      WordPair('SCHNELL', 'LANGSAM'),
+      WordPair('FRÖHLICH', 'TRAURIG')
+    ],
+  };
 
   @override
   void initState() {
     super.initState();
-    _fetchRandomAntonyms();
+    _initializeGame();
   }
 
-  Future<void> _fetchRandomAntonyms() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance.collection('antonyms').get();
-      if (snapshot.docs.isNotEmpty) {
-        // Получаем случайные пары антонимов
-        List<Map<String, String>> tempPairs = [];
-        for (var doc in snapshot.docs) {
-          tempPairs.add({
-            'word': doc['word'],
-            'antonym': doc['antonym'],
-          });
-        }
+  void _initializeGame() {
+    _allPairs = List<WordPair>.from(_antonymsByLanguage[widget.languageCode] ??
+        _antonymsByLanguage['english']!);
+    if (_allPairs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text('Нет антонимов для игры на языке: ${widget.languageCode}'),
+            backgroundColor: Colors.red),
+      );
+      Navigator.of(context).pop();
+      return;
+    }
 
-        // Случайно выбираем 3 пары
-        tempPairs.shuffle();
-        antonymPairs = tempPairs.take(pairsPerPage).toList();
+    List<String> tempDisplay = [];
+    for (var pair in _allPairs) {
+      pair.isMatched = false;
+      tempDisplay.add(pair.word);
+      tempDisplay.add(pair.antonym);
+    }
+    tempDisplay.shuffle(Random());
 
-        // Генерируем варианты для левой и правой стороны
-        leftOptions = antonymPairs.map((pair) => pair['word']!).toList();
-        rightOptions = antonymPairs.map((pair) => pair['antonym']!).toList();
-        
-        // Перемешиваем правую сторону
-        rightOptions.shuffle();
+    _displayItemsWithState =
+        tempDisplay.map((text) => SelectableItem(text: text)).toList();
 
-        leftMatchStatus = List.generate(leftOptions.length, (index) => false);
-        rightMatchStatus = List.generate(rightOptions.length, (index) => false);
-
-        setState(() {
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Нет антонимов в коллекции "antonyms"'),
-        ));
-      }
-    } catch (e) {
-      print("Ошибка при получении данных: $e");
-      setState(() {
-        isLoading = false;
-      });
+    _selectedIndex1 = null;
+    _selectedIndex2 = null;
+    _score = 0;
+    _ignoreTaps = false;
+    if (mounted) {
+      setState(() {});
     }
   }
 
-  void _checkMatch(String selectedWord, String targetWord, int targetIndex) {
-    // Находим пару антонимов по индексу
-    final selectedPair = antonymPairs.firstWhere(
-      (pair) => pair['word'] == selectedWord,
-      orElse: () => {},
-    );
+  void _onCardTap(int index) {
+    if (_ignoreTaps ||
+        _displayItemsWithState[index].isMatched ||
+        _selectedIndex1 == index) return;
 
-    // Проверяем, является ли выбранный антоним правильным
-    bool isCorrect = selectedPair['antonym'] == targetWord;
-
-    // Обновляем статус для конкретной пары
     setState(() {
-      if (isCorrect) {
-        // Устанавливаем статус правильного сопоставления
-        leftMatchStatus[antonymPairs.indexOf(selectedPair)] = true; // Устанавливаем true для правильной пары слева
-        rightMatchStatus[targetIndex] = true; // Устанавливаем true для правильной пары справа
-        totalMatchedPairs++; // Увеличиваем общее количество найденных пар
-
-        // Если на текущей странице все пары найдены, загружаем новые антонимы
-        if (!leftMatchStatus.contains(false)) {
-          if (currentPage < (totalMatchedPairs ~/ pairsPerPage)) {
-            // Переходим на следующую страницу
-            currentPage++;
-            _fetchRandomAntonyms();
-          } else {
-            // Если все пары найдены, выводим сообщение
-            _showCompletionDialog();
-          }
-        }
+      if (_selectedIndex1 == null) {
+        _selectedIndex1 = index;
+        _displayItemsWithState[index].isSelected = true;
       } else {
-        // Если пара неправильная, показываем уведомление
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Неправильная пара!'),
-        ));
+        // _selectedIndex2 будет null здесь по логике
+        _selectedIndex2 = index;
+        _displayItemsWithState[index].isSelected = true;
+        _ignoreTaps = true;
+        _checkMatch();
       }
     });
   }
 
-  void _showCompletionDialog() {
+  void _checkMatch() {
+    if (_selectedIndex1 == null || _selectedIndex2 == null) return;
+
+    final item1 = _displayItemsWithState[_selectedIndex1!];
+    final item2 = _displayItemsWithState[_selectedIndex2!];
+    bool matchFound = false;
+
+    for (var pair in _allPairs) {
+      if (!pair.isMatched &&
+          ((pair.word == item1.text && pair.antonym == item2.text) ||
+              (pair.word == item2.text && pair.antonym == item1.text))) {
+        matchFound = true;
+        pair.isMatched = true; // Отмечаем пару как совпавшую
+        item1.isMatched = true; // Отмечаем элементы отображения как совпавшие
+        item2.isMatched = true;
+        _score++;
+        break;
+      }
+    }
+
+    // Сбрасываем выделение и состояние через некоторое время
+    Future.delayed(Duration(milliseconds: matchFound ? 300 : 700), () {
+      if (mounted) {
+        setState(() {
+          item1.isSelected = false;
+          item2.isSelected = false;
+          _selectedIndex1 = null;
+          _selectedIndex2 = null;
+          _ignoreTaps = false;
+
+          if (_score == _allPairs.length) {
+            _showGameEndDialog();
+          }
+        });
+      }
+    });
+  }
+
+  // lib/pages/GamePages/AntonymPage.dart
+
+// ... (весь остальной код класса _AntonymMatchingPageState до этого метода) ...
+
+  void _showGameEndDialog() {
+    if (!mounted) return;
     showDialog(
-      context: context,
-      builder: (BuildContext context) {
+      context: context, // <--- БЫЛ ПРОПУЩЕН
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        // <--- БЫЛ ПРОПУЩЕН (и параметр context)
         return AlertDialog(
-          title: Text('Молодец!'),
-          content: Text('Ты нашел все пары! Продолжить?'),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Text('🎉 Поздравляем! 🎉',
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, color: Colors.green.shade700)),
+          content: Text(
+              'Вы нашли все пары антонимов! Ваш итоговый счет: $_score / ${_allPairs.length}'),
           actions: <Widget>[
             TextButton(
-              child: Text('Да'),
+              child: Text('Играть снова',
+                  style: TextStyle(
+                      color: appBarColor, fontWeight: FontWeight.bold)),
               onPressed: () {
-                Navigator.of(context).pop(); // Закрываем диалог
-                setState(() {
-                  currentPage = 0; // Сбрасываем страницу
-                  totalMatchedPairs = 0; // Сбрасываем счетчик пар
-                  _fetchRandomAntonyms(); // Загружаем новые антонимы
-                });
+                Navigator.of(dialogContext).pop(); // Используем dialogContext
+                _initializeGame();
               },
             ),
             TextButton(
-              child: Text('Нет'),
+              child: Text('В меню игр',
+                  style: TextStyle(color: Colors.grey.shade700)),
               onPressed: () {
-                Navigator.of(context).pop(); // Закрываем диалог
+                Navigator.of(dialogContext).pop(); // Используем dialogContext
+                // Если ViewGamesPage - это предыдущий экран в стеке:
+                if (Navigator.canPop(context)) {
+                  Navigator.of(context).pop();
+                } else {
+                  // Если нужно перейти по имени маршрута (например, если стек другой)
+                  // Navigator.pushReplacementNamed(context, '/games'); // Замените '/games' на ваш путь к ViewGamesPage
+                }
               },
             ),
           ],
@@ -140,85 +217,156 @@ class _AntonymMatchingPageState extends State<AntonymMatchingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final langDisplayName =
+        _languageOptions[widget.languageCode] ?? widget.languageCode;
     return Scaffold(
+      backgroundColor: backgroundColor,
       appBar: AppBar(
-        title: Text('Сопоставь антонимы'),
-        backgroundColor: Colors.green,
+        title: Text('Найди антоним: $langDisplayName',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: appBarColor,
+        elevation: 0,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: isLoading
-            ? Center(child: CircularProgressIndicator())
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: leftOptions.asMap().entries.map((entry) {
-                      int index = entry.key;
-                      String word = entry.value;
-                      return Draggable<String>(
-                        data: word,
-                        child: _buildDraggableItem(word, leftMatchStatus[index] ? Colors.green : Colors.white),
-                        feedback: _buildDraggableItem(word, Colors.white),
-                        childWhenDragging: Container(),
-                      );
-                    }).toList(),
+      body: _displayItemsWithState.isEmpty
+          ? Center(
+              child: Text("Загрузка игры для языка: ${widget.languageCode}..."))
+          : Column(
+              children: [
+                Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 16.0, horizontal: 20.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Счет: $_score / ${_allPairs.length}',
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: textColor)),
+                        if (_score == _allPairs.length)
+                          Icon(Icons.celebration_rounded,
+                              color: Colors.amber.shade700, size: 28)
+                      ],
+                    )),
+                Expanded(
+                  child: LayoutBuilder(builder: (context, constraints) {
+                    int crossAxisCount = constraints.maxWidth > 700
+                        ? 4
+                        : (constraints.maxWidth > 450 ? 3 : 2);
+                    double childAspectRatio = 2.2; // Для более широких карточек
+                    if (crossAxisCount == 2) childAspectRatio = 1.8;
+
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(12.0),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 10.0,
+                        mainAxisSpacing: 10.0,
+                        childAspectRatio: childAspectRatio,
+                      ),
+                      itemCount: _displayItemsWithState.length,
+                      itemBuilder: (context, index) {
+                        final item = _displayItemsWithState[index];
+                        return _buildAntonymCard(item, index);
+                      },
+                    );
+                  }),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Начать заново"),
+                    onPressed: _initializeGame,
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: appBarColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 25, vertical: 12),
+                        textStyle: const TextStyle(fontSize: 16)),
                   ),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: rightOptions.asMap().entries.map((entry) {
-                      int index = entry.key;
-                      String word = entry.value;
-                      return DragTarget<String>(
-                        builder: (context, candidateData, rejectedData) {
-                          return _buildTargetItem(word, rightMatchStatus[index] ? Colors.green : Colors.white);
-                        },
-                        onAccept: (data) {
-                          // Проверяем, подходит ли слово
-                          _checkMatch(data, word, index);
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ],
+                )
+              ],
+            ),
+    );
+  }
+
+  Widget _buildAntonymCard(SelectableItem item, int index) {
+    Color bgColor = cardColor;
+    Color fgColor = textColor;
+    double elevation = 3.0;
+    BorderSide border = BorderSide.none;
+
+    if (item.isMatched) {
+      bgColor = matchedCardColor.withOpacity(0.6);
+      fgColor = matchedTextColor;
+      elevation = 1.0;
+    } else if (item.isSelected) {
+      bgColor = selectedCardColor;
+      fgColor = Colors.black87;
+      elevation = 6.0;
+      border = BorderSide(color: Colors.amber.shade800, width: 2.5);
+    }
+
+    return GestureDetector(
+      onTap: () => _onCardTap(index),
+      child: Card(
+        elevation: elevation,
+        color: bgColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: border,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: AnimatedContainer(
+          // Для плавной смены цвета/тени
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+              // Если хотите градиент для невыбранных
+              // gradient: !item.isSelected && !item.isMatched ? LinearGradient(...) : null,
               ),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: FittedBox(
+                // Чтобы текст вмещался
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  item.text,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight:
+                        item.isSelected ? FontWeight.bold : FontWeight.w500,
+                    color: fgColor,
+                    decoration: item.isMatched
+                        ? TextDecoration.lineThrough
+                        : TextDecoration.none,
+                    decorationColor: Colors.redAccent.withOpacity(0.7),
+                    decorationThickness: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildDraggableItem(String word, Color backgroundColor) {
-    return Container(
-      margin: EdgeInsets.symmetric(vertical: 5),
-      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        border: Border.all(color: Colors.green),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(color: Colors.grey, blurRadius: 4, offset: Offset(2, 2)),
-        ],
-      ),
-      child: Text(
-        word,
-        style: TextStyle(color: Colors.green, fontSize: 18),
-      ),
-    );
-  }
+  final Map<String, String> _languageOptions = {
+    'english': 'Англ.',
+    'german': 'Нем.',
+    'spanish': 'Исп.',
+  };
+}
 
-  Widget _buildTargetItem(String word, Color backgroundColor) {
-    return Container(
-      margin: EdgeInsets.symmetric(vertical: 5),
-      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        border: Border.all(color: Colors.green),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        word,
-        style: TextStyle(color: Colors.green, fontSize: 18),
-      ),
-    );
-  }
+// Модель для элемента отображения в игре "Найди пару"
+class SelectableItem {
+  final String text;
+  bool isSelected;
+  bool isMatched;
+
+  SelectableItem(
+      {required this.text, this.isSelected = false, this.isMatched = false});
 }
