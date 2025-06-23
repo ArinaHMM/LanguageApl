@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:go_router/go_router.dart';
 import 'package:toast/toast.dart';
-import '../../database/collections/users_collections.dart';
-import '../../models/user_model.dart';
-import '../auth/admin_auth_service.dart';
+import '../../../database/collections/users_collections.dart';
+import '../../../models/user_model.dart';
+import 'admin_auth_service.dart';
 import '../routing/app_router.dart';
 
 class AdminAddUserPage extends StatefulWidget {

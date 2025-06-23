@@ -2,9 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:toast/toast.dart';
-import '../../database/collections/users_collections.dart';
-import '../../models/user_model.dart'; // Включая UserRoles
-import '../auth/admin_auth_service.dart'; // Для проверки статуса админа, если используем коллекцию admins
+import '../../../database/collections/users_collections.dart';
+import '../../../models/user_model.dart'; // Включая UserRoles
+import 'admin_auth_service.dart'; // Для проверки статуса админа, если используем коллекцию admins
 import '../routing/app_router.dart'; // Для AdminRoutes
 
 class AdminManageUsersPage extends StatefulWidget {

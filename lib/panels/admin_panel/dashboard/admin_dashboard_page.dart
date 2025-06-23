@@ -299,7 +299,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
     if (_pdfFont == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Шрифт для PDF не загружен. Кириллица может не отображаться корректно.'), backgroundColor: Colors.orange),
+        const SnackBar(content: Text('Шрифт для PDF не загружен. Кириллица может не отображаться корректно.'),
+         backgroundColor: Colors.orange),
       );
     }
     setState(() => _isGeneratingPdf = true);
@@ -308,7 +309,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
     final pw.ThemeData pdfTheme = pw.ThemeData.withFont(
       base: _pdfFont ?? pw.Font.helvetica(),
-      // ИСПРАВЛЕНИЕ: Используем _pdfFont для жирного, если он есть
       bold: _pdfFont ?? pw.Font.helveticaBold(),
       italic: _pdfFont ?? pw.Font.helveticaOblique(),
       boldItalic: _pdfFont ?? pw.Font.helveticaBoldOblique(),

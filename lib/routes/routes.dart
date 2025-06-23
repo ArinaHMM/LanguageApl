@@ -7,6 +7,8 @@ import 'package:flutter_languageapplicationmycourse_2/pages/AudiosPage/LessonAud
 import 'package:flutter_languageapplicationmycourse_2/pages/ChatsSupport.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/Game.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/HangmanGame.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/LeagueOnePage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/LeaguesPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/ViewGamesPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/LearnPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/LessonPage.dart';
@@ -82,6 +84,10 @@ final routes = {
   '/navadmin': (context) => const AdminNavigationPage(),
   '/navsupport': (context) => const SupportNavigationPage(),
   '/splash': (context) => const SplashScreen(),
+  // '/leagues': (context) => const LeagueInfo(),
+   '/league': (context) =>  LeaguesPage(),
+
+
 
   '/game2': (context) => HangmanGamePage(languageCode: '',),
   '/games': (context) => ViewGamesPage(),

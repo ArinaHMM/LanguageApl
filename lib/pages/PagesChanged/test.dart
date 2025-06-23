@@ -1,7 +1,7 @@
 // lib/test_notification_page.dart (или ваш путь)
 import 'package:flutter/material.dart';
 // Убедитесь, что этот путь к вашему NotificationService корректен
-import 'package:flutter_languageapplicationmycourse_2/database/collections/notification_service.dart';
+import 'package:flutter_languageapplicationmycourse_2/database/storage/notification_service.dart';
 
 class TestNotificationPage extends StatelessWidget {
   const TestNotificationPage({super.key});

@@ -44,7 +44,20 @@ class UsersCollection {
       print("Error in UsersCollection.addUserCollection: $e");
     }
   }
+Future<void> unlockAchievement(String uid, String achievementId) async {
+    final userRef = _firebaseFirestore.collection(_collectionName).doc(uid);
+    final achievementPath = 'unlockedAchievements.$achievementId';
 
+    try {
+      await userRef.update({
+        achievementPath: Timestamp.now(),
+      });
+      print("Achievement '$achievementId' unlocked for user $uid.");
+    } catch (e) {
+      print("Error unlocking achievement '$achievementId' for user $uid: $e");
+      // Можно обработать ошибку, например, если пользователя не существует
+    }
+  }
   // --- НОВЫЙ МЕТОД ДЛЯ СОЗДАНИЯ ДОКУМЕНТА ПОЛЬЗОВАТЕЛЯ ---
   Future<void> createUserDocument({
     required String uid,
@@ -90,6 +103,32 @@ class UsersCollection {
     }
   }
   // --- КОНЕЦ МЕТОДА createUserDocument ---
+Future<void> addItemToInventory(String uid, InventoryItem item) async {
+    final userRef = _firebaseFirestore.collection(_collectionName).doc(uid);
+    final itemPath = 'inventory.${item.id}';
+     await _firebaseFirestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(userRef);
+      if (!snapshot.exists) {
+        throw Exception("User does not exist!");
+      }
+
+      // Получаем текущую карту инвентаря
+      final inventoryMap = (snapshot.data()?['inventory'] as Map<String, dynamic>?) ?? {};
+      
+      // Проверяем, есть ли уже такой предмет
+      if (inventoryMap.containsKey(item.id)) {
+        // Если есть - увеличиваем количество
+        transaction.update(userRef, {
+          '$itemPath.quantity': FieldValue.increment(item.quantity),
+        });
+      } else {
+        // Если нет - добавляем новый предмет
+        transaction.update(userRef, {
+          itemPath: item.toMap(),
+        });
+      }
+    });
+  }
 
   Future<void> editUserCollection(
     String id,

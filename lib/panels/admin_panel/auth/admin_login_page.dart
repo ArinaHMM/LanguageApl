@@ -1,7 +1,7 @@
 // lib/admin_panel/auth/admin_login_page.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Для типа User
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_auth_service.dart'; // Для типа User
 // import 'package:go_router/go_router.dart'; // GoRouter не нужен здесь для явной навигации
 // import 'package:flutter_languageapplicationmycourse_2/admin_panel/routing/app_router.dart'; // Не нужны для явной навигации
 

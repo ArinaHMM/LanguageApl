@@ -71,7 +71,7 @@ class _BrowseLearningModulesPageState extends State<BrowseLearningModulesPage> {
         Navigator.pushReplacementNamed(context, '/games');
         break;
       case 2: // Чаты
-        Navigator.pushReplacementNamed(context, '/chats');
+        Navigator.pushReplacementNamed(context, '/league');
         break;
       case 3: // Материал (текущая страница)
         // Уже здесь, _selectedIndex обновлен
@@ -379,9 +379,9 @@ class _BrowseLearningModulesPageState extends State<BrowseLearningModulesPage> {
             activeIcon: Icon(Icons.extension_rounded, color: selectedColor),
             label: 'Игры'),
         BottomNavigationBarItem(
-            icon: const Icon(Icons.chat_outlined),
-            activeIcon: Icon(Icons.chat_rounded, color: selectedColor),
-            label: 'Чаты'),
+            icon: const Icon(Icons.shield_outlined),
+            activeIcon: Icon(Icons.shield, color: selectedColor),
+            label: 'Лига'),
         BottomNavigationBarItem( // Убедитесь, что иконка соответствует "Материал"
             icon: const Icon(Icons.book_outlined), // или Icons.menu_book, Icons.article_outlined
             activeIcon: Icon(Icons.book_rounded, color: selectedColor), // или Icons.menu_book_rounded

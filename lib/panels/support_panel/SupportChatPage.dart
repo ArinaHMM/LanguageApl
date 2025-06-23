@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth; // Для UserCredential (если нужно)
 import 'package:firebase_storage/firebase_storage.dart'; // Для загрузки изображений
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_auth_service.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_auth_service.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/routing/app_router.dart'; // Для SupportRoutes
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/routing/app_router.dart'; // Для SupportRoutes
 import 'package:image_picker/image_picker.dart'; // Для выбора изображений
 import 'package:intl/intl.dart'; // Для форматирования времени
 

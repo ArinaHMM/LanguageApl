@@ -4,10 +4,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/auth/chatservice.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart'; // Убедитесь, что путь верный
 import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/achievements_page.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/chatPage/MessagePage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/newPages/InventoryPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/newPages/faq_page.dart';
 import 'package:image_picker/image_picker.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -22,12 +26,14 @@ class _ProfilePageState extends State<ProfilePage>
   int _selectedIndex = 4; // Профиль - 5-й элемент (индекс 4)
   final FirebaseAuth _auth = FirebaseAuth.instance;
   User? currentUser;
-   final UsersCollection _usersCollection = UsersCollection();
+  final UsersCollection _usersCollection = UsersCollection();
   DocumentSnapshot<Map<String, dynamic>>? userDataSnapshot;
+  UserModel? _currentUserModel;
 
   File? _pickedImageFile;
   final ImagePicker _picker = ImagePicker();
   bool _isUploadingImage = false;
+  bool _isSavingGoal = false;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -46,11 +52,12 @@ class _ProfilePageState extends State<ProfilePage>
   // --- ЦВЕТА ИЗ LEARNPAGE ДЛЯ НАВИГАЦИИ ---
   final Color learnPagePrimaryOrange = const Color(0xFFFFA726);
   final Color learnPageDarkOrange = const Color(0xFFF57C00);
-final ChatService _chatService = ChatService(); 
+  final ChatService _chatService = ChatService();
   @override
   void initState() {
     super.initState();
     currentUser = _auth.currentUser;
+    _loadUserData();
 
     _animationController = AnimationController(
       vsync: this,
@@ -65,6 +72,28 @@ final ChatService _chatService = ChatService();
         Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
+  }
+
+  Future<void> _loadUserData() async {
+    if (currentUser?.uid == null) return;
+    try {
+      userDataSnapshot = await _usersCollection.getUser(currentUser!.uid);
+      if (userDataSnapshot != null && userDataSnapshot!.exists) {
+        _currentUserModel =
+            UserModel.fromFirestore(userDataSnapshot!); // Парсим в UserModel
+        if (mounted &&
+            _animationController.status == AnimationStatus.dismissed) {
+          _animationController.forward();
+        }
+        if (mounted) setState(() {}); // Обновляем UI
+      } else {
+        // Обработка случая, когда документ не найден
+        print("User document not found for UID: ${currentUser!.uid}");
+      }
+    } catch (e) {
+      print("Error loading user data in ProfilePage: $e");
+      if (mounted) _showSnackBar("Ошибка загрузки данных профиля.");
+    }
   }
 
   @override
@@ -95,7 +124,7 @@ final ChatService _chatService = ChatService();
         Navigator.pushReplacementNamed(context, '/games');
         break;
       case 2: // Чаты
-        Navigator.pushReplacementNamed(context, '/chats');
+        Navigator.pushReplacementNamed(context, '/league');
         break;
       case 3: // Настройки
         Navigator.pushReplacementNamed(context, '/modules_view');
@@ -176,6 +205,101 @@ final ChatService _chatService = ChatService();
         setState(() {
           _isUploadingImage = false;
         });
+      }
+    }
+  }
+
+  Future<void> _editDailyGoal() async {
+    if (_currentUserModel == null) return;
+
+    TextEditingController goalController =
+        TextEditingController(text: _currentUserModel!.dailyGoalXp.toString());
+    final formKeyDialog = GlobalKey<FormState>();
+
+    int? newGoal = await showDialog<int>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Text('Изменить дневную цель XP',
+              style: TextStyle(
+                  color: profilePagePrimaryOrange,
+                  fontWeight: FontWeight.bold)),
+          content: Form(
+            key: formKeyDialog,
+            child: TextFormField(
+              controller: goalController,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'XP в день',
+                hintText: 'Например: 50, 100, 150',
+                prefixIcon: Icon(Icons.flag_circle_outlined,
+                    color: profilePagePrimaryOrange),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: profilePagePrimaryOrange)),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey.shade400)),
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly
+              ], // Только цифры
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Введите значение цели';
+                }
+                final int? goal = int.tryParse(value);
+                if (goal == null) {
+                  return 'Введите корректное число';
+                }
+                if (goal < 10 || goal > 500) {
+                  // Примерные границы
+                  return 'Цель должна быть от 10 до 500 XP';
+                }
+                return null;
+              },
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Отмена', style: TextStyle(color: Colors.grey)),
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+            ),
+            TextButton(
+              child: Text('Сохранить',
+                  style: TextStyle(
+                      color: profilePagePrimaryOrange,
+                      fontWeight: FontWeight.bold)),
+              onPressed: () {
+                if (formKeyDialog.currentState!.validate()) {
+                  Navigator.of(dialogContext)
+                      .pop(int.tryParse(goalController.text));
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newGoal != null && newGoal != _currentUserModel!.dailyGoalXp) {
+      setState(() => _isSavingGoal = true);
+      try {
+        await _usersCollection
+            .updateUserCollection(currentUser!.uid, {'dailyGoalXp': newGoal});
+        // Обновляем локальную модель
+        if (mounted) {
+          setState(() {
+            _currentUserModel =
+                _currentUserModel!.copyWith(dailyGoalXp: newGoal);
+          });
+          _showSnackBar("Дневная цель обновлена: $newGoal XP!", isError: false);
+        }
+      } catch (e) {
+        _showSnackBar("Ошибка обновления цели: $e");
+      } finally {
+        if (mounted) setState(() => _isSavingGoal = false);
       }
     }
   }
@@ -514,7 +638,8 @@ final ChatService _chatService = ChatService();
       ),
     );
   }
- void _showSupportBottomSheet(BuildContext context) {
+
+  void _showSupportBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -524,13 +649,18 @@ final ChatService _chatService = ChatService();
       builder: (BuildContext bc) {
         return Container(
           padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
-          child: Wrap( // Wrap для содержимого, если его будет больше
+          child: Wrap(
+            // Wrap для содержимого, если его будет больше
             children: <Widget>[
               ListTile(
-                leading: Icon(Icons.support_agent_rounded, color: profilePagePrimaryOrange, size: 30),
+                leading: Icon(Icons.support_agent_rounded,
+                    color: profilePagePrimaryOrange, size: 30),
                 title: Text(
                   'Связаться с поддержкой',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: darkText),
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: darkText),
                 ),
                 subtitle: const Text('Задайте ваш вопрос нашей команде'),
                 onTap: () async {
@@ -540,12 +670,17 @@ final ChatService _chatService = ChatService();
               ),
               const Divider(height: 20, thickness: 1),
               ListTile(
-                leading: Icon(Icons.help_outline_rounded, color: Colors.grey.shade600),
-                title: Text('Часто задаваемые вопросы (FAQ)', style: TextStyle(color: Colors.grey.shade700)),
+                leading: Icon(Icons.help_outline_rounded,
+                    color: Colors.grey.shade600),
+                title: Text('Часто задаваемые вопросы (FAQ)',
+                    style: TextStyle(color: Colors.grey.shade700)),
                 onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Переход на страницу FAQ, если она есть
-                  _showSnackBar("Раздел FAQ в разработке", isError: false);
+                  Navigator.pop(context); // Сначала закрываем BottomSheet
+                  // Затем открываем новую страницу FAQ
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const FaqPage()),
+                  );
                 },
               ),
             ],
@@ -567,11 +702,12 @@ final ChatService _chatService = ChatService();
       return;
     }
 
-     try {
+    try {
       // Используем ChatService для получения или создания документа чата
       // getOrCreateChatWithSupport должен вернуть DocumentSnapshot чата
-      DocumentSnapshot chatDocSnapshot = await _chatService.getOrCreateChatWithSupport(currentUser!.uid, SUPPORT_TEAM_UID);
-      
+      DocumentSnapshot chatDocSnapshot = await _chatService
+          .getOrCreateChatWithSupport(currentUser!.uid, SUPPORT_TEAM_UID);
+
       String chatId = chatDocSnapshot.id; // ID документа чата
       String? supportUserName = "Поддержка"; // Имя по умолчанию
 
@@ -579,9 +715,12 @@ final ChatService _chatService = ChatService();
       // Это можно сделать, если в ChatService вы не денормализуете имя поддержки в документ чата
       // или если хотите всегда свежее имя.
       try {
-        UserModel? supportUserModel = await _usersCollection.getUserModel(SUPPORT_TEAM_UID);
+        UserModel? supportUserModel =
+            await _usersCollection.getUserModel(SUPPORT_TEAM_UID);
         if (supportUserModel != null) {
-          supportUserName = "${supportUserModel.firstName} ${supportUserModel.lastName}".trim();
+          supportUserName =
+              "${supportUserModel.firstName} ${supportUserModel.lastName}"
+                  .trim();
           if (supportUserName.isEmpty) {
             supportUserName = supportUserModel.email;
           }
@@ -590,14 +729,14 @@ final ChatService _chatService = ChatService();
         print("Could not fetch support user name: $e");
       }
 
-
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => MessagesPage(
               chatId: chatId, // <--- ПЕРЕДАЕМ chatId
-              initialOtherUserName: supportUserName, // <--- ПЕРЕДАЕМ ИМЯ СОБЕСЕДНИКА (ПОДДЕРЖКИ)
+              initialOtherUserName:
+                  supportUserName, // <--- ПЕРЕДАЕМ ИМЯ СОБЕСЕДНИКА (ПОДДЕРЖКИ)
             ),
           ),
         );
@@ -607,6 +746,7 @@ final ChatService _chatService = ChatService();
       _showSnackBar("Не удалось начать чат с поддержкой. Попробуйте позже.");
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -737,6 +877,37 @@ final ChatService _chatService = ChatService();
                               textAlign: TextAlign.center,
                             ),
                             SizedBox(height: screenHeight * 0.04),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 8.0),
+                              child: Row(
+                                children: [
+                                  // Карточка для Стрика (Ударного режима)
+                                  _StatCard(
+                                    icon: Icons.local_fire_department_rounded,
+                                    title: "Стрик",
+                                    // Используем данные из _currentUserModel, если он загружен
+                                    value:
+                                        "${_currentUserModel?.currentStreak ?? 0} дней",
+                                    color: Colors.red.shade500,
+                                    // onEdit: () { /* Можно добавить диалог с информацией о стрике */ },
+                                  ),
+                                  const SizedBox(width: 12),
+                                  // Карточка для Дневной цели
+                                  _StatCard(
+                                    icon: Icons.flag_circle_rounded,
+                                    title: "Дневная цель",
+                                    // Используем данные из _currentUserModel, если он загружен
+                                    value:
+                                        "${_currentUserModel?.dailyGoalXp ?? 50} XP",
+                                    color: Colors.blue.shade600,
+                                    onEdit: _isSavingGoal
+                                        ? null
+                                        : _editDailyGoal, // Вызываем ваш метод редактирования
+                                  ),
+                                ],
+                              ),
+                            ),
                             _EditableInfoCard(
                               title: "Имя",
                               value: _userData?['firstName'] ?? '',
@@ -767,6 +938,77 @@ final ChatService _chatService = ChatService();
                                   profilePagePrimaryOrange, // Используем цвет профиля
                             ),
                             SizedBox(height: screenHeight * 0.03),
+                            SizedBox(height: screenHeight * 0.03),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: Icon(Icons.backpack_rounded,
+                                    color: profilePagePrimaryOrange),
+                                label: Text(
+                                  'Мой инвентарь',
+                                  style: TextStyle(
+                                    color: profilePagePrimaryOrange,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            const InventoryPage()),
+                                  );
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                      color: profilePagePrimaryOrange,
+                                      width: 2),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                  foregroundColor:
+                                      profilePageAccentOrange, // Цвет эффекта нажатия
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: Icon(Icons.emoji_events_rounded,
+                                    color: profilePagePrimaryOrange),
+                                label: Text(
+                                  'Достижения',
+                                  style: TextStyle(
+                                    color: profilePagePrimaryOrange,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            const AchievementsPage()),
+                                  );
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                      color: profilePagePrimaryOrange,
+                                      width: 2),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                  foregroundColor:
+                                      profilePageAccentOrange, // Цвет эффекта нажатия
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
@@ -806,20 +1048,21 @@ final ChatService _chatService = ChatService();
         onPressed: () {
           _showSupportBottomSheet(context);
         },
-        label: const Text('Поддержка', style: TextStyle(fontWeight: FontWeight.w600)),
+        label: const Text('Поддержка',
+            style: TextStyle(fontWeight: FontWeight.w600)),
         icon: const Icon(Icons.support_agent_rounded),
-        backgroundColor: profilePagePrimaryOrange, // Используем цвет из палитры профиля
+        backgroundColor:
+            profilePagePrimaryOrange, // Используем цвет из палитры профиля
         foregroundColor: lightText,
         elevation: 4.0,
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat, // Расположение кнопки
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat, // Расположение кнопки
       // ------------------------------------
-    
     );
   }
 
-  BottomNavigationBar _buildBottomNavigationBar()
-   {
+  BottomNavigationBar _buildBottomNavigationBar() {
     Color selectedColor = learnPageDarkOrange; // Цвет из LearnPage
     Color unselectedColor =
         learnPagePrimaryOrange.withOpacity(0.7); // Цвет из LearnPage
@@ -847,12 +1090,12 @@ final ChatService _chatService = ChatService();
             activeIcon: Icon(Icons.extension_rounded, color: selectedColor),
             label: 'Игры'),
         BottomNavigationBarItem(
-            icon: Icon(Icons.chat_outlined),
-            activeIcon: Icon(Icons.chat_rounded, color: selectedColor),
-            label: 'Чаты'),
+            icon: Icon(Icons.shield_outlined),
+            activeIcon: Icon(Icons.shield, color: selectedColor),
+            label: 'Лига'),
         BottomNavigationBarItem(
-            icon: Icon(Icons.book),
-            activeIcon: Icon(Icons.tune_rounded, color: selectedColor),
+            icon: Icon(Icons.book_outlined),
+            activeIcon: Icon(Icons.book, color: selectedColor),
             label: 'Материал'),
         BottomNavigationBarItem(
             icon: Icon(Icons.person_pin_circle_outlined),
@@ -925,6 +1168,67 @@ class _EditableInfoCard extends StatelessWidget {
               ),
               Icon(Icons.edit_outlined, color: Colors.grey[400], size: 24),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onEdit; // Сделаем его необязательным
+
+  const _StatCard({
+    Key? key,
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onEdit,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Card(
+        elevation: 2.5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        color: Colors.white,
+        child: InkWell(
+          onTap: onEdit,
+          borderRadius: BorderRadius.circular(15),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: color, size: 32),
+                const SizedBox(height: 8),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

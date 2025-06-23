@@ -76,8 +76,7 @@ class _AddLessonPageState extends State<AddLessonPage> {
         _translation1Controller.text.isNotEmpty &&
         _correctAnswerController.text.isNotEmpty) {
       setState(() {
-        // Проверка на дубликаты
-        if (!_wordsList
+               if (!_wordsList
             .any((wordData) => wordData['word'] == _wordController.text)) {
           _wordsList.add({
             'word': _wordController.text,
@@ -89,8 +88,6 @@ class _AddLessonPageState extends State<AddLessonPage> {
           });
         }
       });
-
-      // Очистить поля ввода для следующего слова
       _wordController.clear();
       _translation1Controller.clear();
       _translation2Controller.clear();

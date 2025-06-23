@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 // Предполагается, что SupportRoutes определены в app_router.dart или support_layout.dart
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/routing/app_router.dart'; 
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/routing/app_router.dart'; 
 // Если UserModel нужен для получения более детальной информации о пользователе,
 // но для ChatSummary мы можем использовать денормализованные данные.
 // import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';

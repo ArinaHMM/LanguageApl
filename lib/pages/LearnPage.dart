@@ -1,4 +1,6 @@
 // lib/pages/LearnPage.dart
+// ignore_for_file: unnecessary_null_comparison, file_names
+
 import 'dart:async';
 import 'dart:math' as math; // Для min и Transform.rotate
 import 'package:flutter/material.dart';
@@ -6,11 +8,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/lessons_collections.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/StreakService.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/app_data.dart';
 import 'package:flutter_languageapplicationmycourse_2/models/lesson_model.dart';
 import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
 import 'package:flutter_languageapplicationmycourse_2/models/audiolessons_service.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/voice_model.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/GamePages/AchievementsPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/SpeakingPracticePage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/audioplayerpage.dart';
 import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/lesson_player_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/newPages/InventoryPage.dart';
 import 'package:flutter_languageapplicationmycourse_2/widget/language_selector_widget.dart';
 import 'package:toast/toast.dart'; // Вы используете этот пакет
 
@@ -27,28 +35,29 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
   final AudioWordBankLessonsService _audioWordBankService =
       AudioWordBankLessonsService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
+  final StreakService _streakService = StreakService();
   UserModel? _currentUserData;
   String _currentLearningLanguage = 'english'; // Язык по умолчанию
   List<Lesson> _allLessonsForCurrentLanguage = [];
   bool _isLoading = true;
   String? _errorMessage;
-
+  int _currentStreak = 0;
+  // ignore: unused_field
+  int _streakFreezes = 0;
+// Для отображения прогресса дневной цели
+  int _dailyXpEarnedToday = 0;
+  int _dailyGoalXp = 50; // Будет загружаться из _currentUserData
   int _lives = 5;
   Timer? _lifeRestoreTimer;
   final ValueNotifier<int> _remainingTimeForLifeNotifier =
       ValueNotifier<int>(0);
   bool _isAdmin = false;
 
-  // --- НОВАЯ ЦВЕТОВАЯ ПАЛИТРА И СТИЛИ ---
-  final Color primaryOrange = const Color(0xFFFFA726); // Яркий оранжевый
-  final Color accentYellow =
-      const Color(0xFFFFE082); // Очень светло-желтый/персиковый для фона
-  final Color darkOrange =
-      const Color(0xFFF57C00); // Темнее оранжевый для акцентов
+  final Color primaryOrange = const Color(0xFFFFA726);
+  final Color accentYellow = const Color(0xFFFFE082);
+  final Color darkOrange = const Color(0xFFF57C00);
   final Color textOnOrange = Colors.white;
-  final Color textOnWhite =
-      const Color(0xFF3A3A3A); // Темно-серый для текста на светлом фоне
+  final Color textOnWhite = const Color(0xFF3A3A3A);
   final Color subtleShadow = Colors.black.withOpacity(0.12);
 
   final List<String> _levelOrder = [
@@ -88,8 +97,13 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
       'Upper Intermediate': Icons.menu_book_rounded,
       'Advanced': Icons.military_tech_rounded,
       'Прочее': Icons.explore_rounded,
+      'speaking_pronunciation': Icons.record_voice_over_rounded,
     };
 
+    _pageFadeController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
     _pageFadeController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -97,10 +111,68 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
     _pageFadeAnimation =
         CurvedAnimation(parent: _pageFadeController, curve: Curves.easeInOut);
 
-    _sectionAppearControllers = [];
+    _sectionAppearControllers = []; // Инициализируем как пустой список
     _sectionAppearAnimations = [];
+    _initializePageAndStreak();
+  }
 
-    _initializePage();
+  void _updateLocalStateWithUserModel(UserModel userData) {
+    if (!mounted) return;
+
+    setState(() {
+      _currentUserData = userData;
+      _currentLearningLanguage =
+          userData.languageSettings!.currentLearningLanguage;
+      _lives = userData.lives;
+      _isAdmin = userData.email == 'admin@mail.ru';
+      _currentStreak = userData.currentStreak;
+      _streakFreezes = userData.streakFreezes;
+      _dailyGoalXp = userData.dailyGoalXp;
+      _dailyXpEarnedToday = userData
+              .languageSettings
+              ?.learningProgress[_currentLearningLanguage]
+              ?.dailyXpEarnedToday ??
+          0;
+    });
+  }
+
+  Future<void> _initializePageAndStreak() async {
+    await _initializePage();
+    _buildStreakIndicator(); // Ваш существующий метод
+
+    // Затем, если данные пользователя загружены, проверяем и обновляем стрик
+    if (_currentUserData != null && mounted) {
+      final userAfterStreakCheck =
+          await _streakService.checkAndUpdateStreakOnLoad(
+        _currentUserData!,
+      );
+      _updateLocalStateWithUserModel(userAfterStreakCheck);
+      if (userAfterStreakCheck != null && mounted) {
+        setState(() {
+          _currentUserData = userAfterStreakCheck;
+          _currentStreak = _currentUserData!.currentStreak;
+          _streakFreezes = _currentUserData!.streakFreezes;
+          _dailyGoalXp = _currentUserData!.dailyGoalXp;
+          _dailyXpEarnedToday = _currentUserData!
+                  .languageSettings
+                  ?.learningProgress[_currentLearningLanguage]
+                  ?.dailyXpEarnedToday ??
+              0;
+        });
+      } else if (mounted && _currentUserData != null) {
+        // Добавил проверку _currentUserData != null
+        _dailyXpEarnedToday = _currentUserData!
+                .languageSettings
+                ?.learningProgress[_currentLearningLanguage]
+                ?.dailyXpEarnedToday ??
+            0;
+        // Если dailyXpEarnedToday изменился (например, был сброшен сервисом),
+        // то нужно вызвать setState, чтобы UI обновился.
+        // Но если он не изменился, лишний setState не нужен.
+        // Для простоты можно оставить setState, или добавить проверку.
+        if (mounted) setState(() {});
+      }
+    }
   }
 
   void _initSectionAnimations(int count) {
@@ -152,7 +224,6 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
       });
     }
     _pageFadeController.reset();
-    // Сбрасываем анимации секций перед новой загрузкой
     for (var controller in _sectionAppearControllers) {
       controller.reset();
     }
@@ -182,6 +253,14 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
             _currentUserData!.languageSettings!.currentLearningLanguage;
         _lives = _currentUserData!.lives;
         _isAdmin = _currentUserData!.email == 'admin@mail.ru';
+        _currentStreak = _currentUserData!.currentStreak;
+        _streakFreezes = _currentUserData!.streakFreezes;
+        _dailyGoalXp = _currentUserData!.dailyGoalXp;
+        _dailyXpEarnedToday = _currentUserData!
+                .languageSettings
+                ?.learningProgress[_currentLearningLanguage]
+                ?.dailyXpEarnedToday ??
+            0;
         if (isLanguageChange) _allLessonsForCurrentLanguage = [];
       });
 
@@ -242,7 +321,8 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
         'videolessons',
         'advancedlessons',
         'upperinterlessons',
-        'upperupinterlessons'
+        'upperupinterlessons',
+        'voice_lessons'
       ];
       for (String collectionName in standardLessonCollections) {
         try {
@@ -426,64 +506,334 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
 
   Future<void> _navigateToLesson(Lesson lesson) async {
     if (!mounted) return;
-    final BuildContext currentContext = context;
+    final BuildContext currentNavContext =
+        context; // Используем другое имя для ясности
     bool dialogShown = false;
+
+    // 1. Показываем индикатор загрузки (если нужно перед списанием жизней)
     if (mounted) {
       try {
         showDialog(
-            context: currentContext,
+            context: currentNavContext,
             barrierDismissible: false,
             builder: (BuildContext dialogContext) =>
                 Center(child: CircularProgressIndicator(color: primaryOrange)));
         dialogShown = true;
       } catch (e) {
-        print("Error showing deduct life dialog: $e");
+        print("Error showing loading dialog: $e");
       }
     }
+
+    // 2. Списываем жизнь
     bool canProceed = await _deductLife();
-    if (dialogShown && mounted) {
+
+    // 3. Закрываем диалог загрузки
+    if (dialogShown && mounted && Navigator.canPop(currentNavContext)) {
       try {
-        if (Navigator.canPop(currentContext)) {
-          Navigator.pop(currentContext);
-        }
+        Navigator.pop(currentNavContext);
       } catch (e) {
-        print("Error popping deduct life dialog: $e");
+        print("Error popping loading dialog: $e");
       }
     }
-    if (!mounted || !canProceed) return;
-    Widget lessonViewerPage;
-    if (lesson.lessonType == 'audioWordBankSentence' ||
-        lesson.collectionName == _audioWordBankService.collectionName) {
+
+    // 4. Проверяем, можно ли продолжать (есть ли жизни)
+    if (!mounted || !canProceed) {
+      // _deductLife уже должен был показать Toast, если жизней нет
+      return;
+    }
+
+    // 5. Определяем, какую страницу урока открыть
+    Widget? lessonViewerPage; // Используем nullable тип
+
+    print(
+        "LearnPage: Navigating to lesson ID: ${lesson.id}, Type='${lesson.lessonType}', Collection='${lesson.collectionName}'");
+
+    if (lesson.lessonType == 'speaking_pronunciation') {
+      // --- ЛОГИКА ДЛЯ УПРАЖНЕНИЙ НА ГОВОРЕНИЕ ---
+      if (lesson.textToSpeak == null || lesson.textToSpeak!.isEmpty) {
+        print(
+            "Error: textToSpeak is missing for speaking exercise ${lesson.id}");
+        if (mounted)
+          Toast.show("Ошибка данных урока: отсутствует текст для произношения.",
+              duration: Toast.lengthLong, gravity: Toast.center);
+        return; // Не переходим, если нет текста
+      }
+
+      final speakingExercise = SpeakingExercise(
+        id: lesson.id,
+        type: lesson.lessonType,
+        targetLanguage: lesson.targetLanguage,
+        level: lesson.requiredLevel,
+        textToSpeak: lesson.textToSpeak!,
+        audioUrlExample: lesson.audioUrlExample,
+        title: lesson.title,
+        orderIndex: lesson.orderIndex,
+        createdAt: lesson.createdAt,
+        isPublished: true,
+      );
+
+      lessonViewerPage = SpeakingPracticePage(
+        exercise: speakingExercise,
+        onNext: () {
+          print(
+              "Speaking exercise '${lesson.title}' (ID: ${lesson.id}) 'Next' pressed by user.");
+          if (Navigator.canPop(currentNavContext)) {
+            Navigator.pop(currentNavContext);
+          }
+          _handleProgressUpdate(lesson.id, 100); // Помечаем как пройденное
+        },
+      );
+    } else if (lesson.lessonType == 'audioWordBankSentence' ||
+        (lesson.collectionName == _audioWordBankService.collectionName &&
+            _audioWordBankService.collectionName.isNotEmpty)) {
+      // Добавил проверку, что collectionName не пустой
+      // --- ВАША СУЩЕСТВУЮЩАЯ ЛОГИКА ДЛЯ AudioWordBank ---
       lessonViewerPage = LessonPlayerAudioPage(
           lesson: lesson, onProgressUpdated: _handleProgressUpdate);
-    } else {
+    } else if (lesson.exercises.isNotEmpty ||
+        lesson.lessonType == 'interactive' ||
+        lesson.lessonType == 'chooseTranslation') {
+      // Расширил условие для стандартных уроков
+      // --- ВАША СУЩЕСТВУЮЩАЯ ЛОГИКА ДЛЯ ОБЫЧНЫХ УРОКОВ ---
+      // (Предполагаем, что LessonPlayerPage обрабатывает уроки с exercises или известные типы)
       lessonViewerPage = LessonPlayerPage(
           lesson: lesson, onProgressUpdated: _handleProgressUpdate);
+    } else {
+      // Если тип урока не определен или для него нет обработчика
+      print(
+          "LearnPage: Unhandled lesson type: '${lesson.lessonType}' for lesson '${lesson.title}' (ID: ${lesson.id}).");
+      if (mounted)
+        Toast.show("Невозможно открыть урок данного типа.",
+            duration: Toast.lengthLong, gravity: Toast.center);
+      return;
     }
-    Future.microtask(() {
-      if (mounted) {
-        Navigator.push(currentContext,
-                MaterialPageRoute(builder: (routeContext) => lessonViewerPage))
-            .then((_) {
-          if (mounted) {
-            _initializePage(isLanguageChange: false);
-          }
-        });
-      }
-    });
+
+    // 6. Выполняем навигацию, если страница урока была создана
+    if (lessonViewerPage != null) {
+      Future.microtask(() {
+        if (mounted) {
+          Navigator.push(
+                  currentNavContext,
+                  MaterialPageRoute(
+                      builder: (routeContext) => lessonViewerPage!))
+              .then((lessonCompletionResult) {
+            // Получаем результат со страницы урока
+            if (mounted) {
+              print(
+                  "Returned from lesson '${lesson.title}' (ID: ${lesson.id}). Result: $lessonCompletionResult");
+              _initializePage(isLanguageChange: false); // Обновляем LearnPage
+            }
+          });
+        }
+      });
+    }
   }
 
-  void _handleProgressUpdate(String lessonId, int newProgress) async {
+  void _handleProgressUpdate(String lessonId, int newProgress,
+      {int xpForThisAction = 10}) async {
     if (_currentUserData == null || !mounted) return;
-    UserModel updatedUserDataLocally = _currentUserData!
-        .updateLessonProgress(_currentLearningLanguage, lessonId, newProgress);
-    if (mounted)
-      setState(() {
-        _currentUserData = updatedUserDataLocally;
-      });
+
+    // 1. Определяем, нужно ли начислять XP
+    final bool shouldEarnXp = newProgress >= 100 &&
+        (_currentUserData!
+                    .languageSettings
+                    ?.learningProgress[_currentLearningLanguage]
+                    ?.lessonsCompleted[lessonId] ??
+                0) <
+            100;
+
+    int xpToAward = shouldEarnXp ? xpForThisAction : 0;
+    if (xpToAward > 0 && _currentUserData!.isDoubleXpActive) {
+      xpToAward *= 2;
+      print("Двойной опыт активен! Будет начислено: $xpToAward XP");
+      // Можно показать временный SnackBar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("x2 XP! Вы получили $xpToAward очков опыта!"),
+          backgroundColor: Colors.purple,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    // 2. Обновляем ТОЛЬКО прогресс урока в Firestore. XP пока не трогаем.
     await _usersCollection.updateLessonProgressInUserDoc(
         _currentUserData!.uid, _currentLearningLanguage, lessonId, newProgress);
-    if (newProgress >= 100) await _checkAndAdvanceLevel();
+
+    // 3. Локально обновляем модель, чтобы передать ее в сервис
+    UserModel modelForService = _currentUserData!.withUpdatedLessonProgress(
+        languageCode: _currentLearningLanguage,
+        lessonId: lessonId,
+        newProgress: newProgress);
+
+    // 4. Если XP заработан, вызываем StreakService для начисления и проверки цели
+    if (xpToAward > 0) {
+      print("LearnPage: Урок пройден, начисляем $xpToAward XP...");
+
+      final userAfterGoalCheck = await _streakService.updateUserXpAndCheckGoal(
+        userId: modelForService.uid,
+        currentUserData:
+            modelForService, // Передаем модель с уже обновленным прогрессом урока
+        xpEarned: xpToAward,
+        forLanguageCode: _currentLearningLanguage,
+      );
+
+      // 5. Применяем финальную, самую свежую модель от сервиса
+      if (userAfterGoalCheck != null && mounted) {
+        print(
+            "LearnPage: Получены обновленные данные от StreakService. XP сегодня: ${userAfterGoalCheck.languageSettings?.learningProgress[_currentLearningLanguage]?.dailyXpEarnedToday}");
+        _updateLocalStateWithUserModel(userAfterGoalCheck);
+        await AchievementService()
+            .checkLessonRelatedAchievements(userAfterGoalCheck);
+        if (userAfterGoalCheck.awardedItemForUI != null) {
+          _showRewardDialog(userAfterGoalCheck.awardedItemForUI!);
+        }
+      }
+    } else {
+      // Если XP не заработан, просто обновляем локальную модель
+      if (mounted) _updateLocalStateWithUserModel(modelForService);
+    }
+
+    // 6. После всех обновлений проверяем, не пора ли повысить уровень
+    await _checkAndAdvanceLevel();
+  }
+
+  void _showRewardDialog(InventoryItem awardedItem) {
+    // Получаем иконку для предмета
+    final IconData itemIcon = AppData.itemIcons[awardedItem.icon] ??
+        AppData.itemIcons['default_icon']!;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 30),
+            SizedBox(width: 10),
+            Text("Цель достигнута!"),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Вы получаете награду:", textAlign: TextAlign.center),
+            SizedBox(height: 20),
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: primaryOrange.withOpacity(0.1),
+              child: Icon(itemIcon, size: 45, color: primaryOrange),
+            ),
+            SizedBox(height: 12),
+            Text(
+              awardedItem.name,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 4),
+            Text(
+              "+${awardedItem.quantity} в инвентарь",
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text("Отлично!",
+                style: TextStyle(
+                    color: primaryOrange, fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStreakIndicator() {
+    if (_currentUserData == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.local_fire_department_rounded,
+              color: _currentStreak > 0
+                  ? Colors.orangeAccent.shade700
+                  : Colors.grey.shade400,
+              size: 22),
+          const SizedBox(width: 4),
+          Text("$_currentStreak",
+              style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: _currentStreak > 0
+                      ? textOnOrange.withOpacity(0.9)
+                      : Colors.grey.shade300)),
+          if (_currentUserData!.streakFreezes > 0) ...[
+            const SizedBox(width: 10),
+            Tooltip(
+              message: "Доступно заморозок: ${_currentUserData!.streakFreezes}",
+              child: Icon(Icons.ac_unit_rounded,
+                  color: Colors.lightBlue.shade200, size: 19),
+            )
+          ]
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyGoalProgress() {
+    if (_currentUserData == null || _dailyGoalXp <= 0)
+      return const SizedBox.shrink();
+    double progress = (_dailyXpEarnedToday / _dailyGoalXp).clamp(0.0, 1.0);
+    bool goalMet = _dailyXpEarnedToday >= _dailyGoalXp;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Дневная цель:",
+                style: TextStyle(
+                    fontSize: 14, color: textOnOrange.withOpacity(0.85)),
+              ),
+              Text(
+                "$_dailyXpEarnedToday / $_dailyGoalXp XP",
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: textOnOrange),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: accentYellow.withOpacity(0.3),
+            valueColor: AlwaysStoppedAnimation<Color>(
+                goalMet ? Colors.green.shade400 : primaryOrange),
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          if (goalMet)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      color: Colors.green.shade300, size: 16),
+                  const SizedBox(width: 4),
+                  Text("Цель достигнута!",
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.green.shade300)),
+                ],
+              ),
+            )
+        ],
+      ),
+    );
   }
 
   Future<void> _checkAndAdvanceLevel() async {
@@ -519,43 +869,95 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
 
   Future<void> _advanceToNextLevel(String currentLevel) async {
     if (_currentUserData == null || !mounted) return;
+
     int currentLevelIndex = _levelOrder.indexOf(currentLevel);
-    if (currentLevel == "" || currentLevel.toLowerCase() == "begginer") {
-      currentLevelIndex = -1;
-    }
-    if (currentLevelIndex == -1 &&
-        currentLevel != "" &&
-        currentLevel.toLowerCase() != "begginer") {
-      print("Текущий уровень '$currentLevel' не найден. Повышение невозможно.");
+
+    // Обработка начального состояния или "begginer"
+    if (currentLevel.isEmpty || currentLevel.toLowerCase() == "begginer") {
+      // Используйте "beginner", если это правильное написание
+      currentLevelIndex =
+          -1; // Это позволит nextLevel стать первым элементом _levelOrder
+    } else if (currentLevelIndex == -1) {
+      // Если уровень не пустой, не "begginer", но не найден в _levelOrder
+      print(
+          "Текущий уровень '$currentLevel' не найден в _levelOrder. Повышение невозможно.");
       return;
     }
+
     if (currentLevelIndex >= _levelOrder.length - 1) {
-      print("Пользователь уже на максимальном уровне.");
+      print(
+          "Пользователь уже на максимальном уровне (${_levelOrder.last}) или уровень некорректен для повышения.");
       return;
     }
+
     String nextLevel = _levelOrder[currentLevelIndex + 1];
+    print(
+        "Advancing user ${_currentUserData!.uid} for language $_currentLearningLanguage from '$currentLevel' (index: $currentLevelIndex) to '$nextLevel'");
+
     try {
       await _usersCollection.updateUserLevel(
           _currentUserData!.uid, _currentLearningLanguage, nextLevel);
-      final langSettings = _currentUserData!.languageSettings;
-      if (langSettings != null) {
-        final learningProg =
-            langSettings.learningProgress[_currentLearningLanguage];
-        if (learningProg != null) {
-          final updatedLangProg = learningProg.copyWith(level: nextLevel);
+
+      // Обновляем локальные данные _currentUserData
+      UserLanguageSettings? currentLangSettings =
+          _currentUserData!.languageSettings;
+      UserModel? updatedUserData;
+
+      if (currentLangSettings != null) {
+        UserLanguageProgress? currentLangProgress =
+            currentLangSettings.learningProgress[_currentLearningLanguage];
+
+        if (currentLangProgress != null) {
+          final updatedLangProg =
+              currentLangProgress.copyWith(level: nextLevel);
           final newLearningProgressMap = Map<String, UserLanguageProgress>.from(
-              langSettings.learningProgress);
+              currentLangSettings.learningProgress);
           newLearningProgressMap[_currentLearningLanguage] = updatedLangProg;
+          final updatedSettings = currentLangSettings.copyWith(
+              learningProgress: newLearningProgressMap);
+
+          updatedUserData = _currentUserData!.copyWith(
+            languageSettings: () => updatedSettings, // <--- ИСПРАВЛЕНИЕ ЗДЕСЬ
+          );
+        } else {
+          // Если нет прогресса для текущего языка, создаем его с новым уровнем
+          print(
+              "LearnPage: No learning progress found for $_currentLearningLanguage. Creating new with level $nextLevel.");
+          final newLangProgForLevel = UserLanguageProgress(
+              level: nextLevel, xp: 0, lessonsCompleted: {});
           final updatedSettings =
-              langSettings.copyWith(learningProgress: newLearningProgressMap);
-          if (mounted) {
-            setState(() {
-              _currentUserData =
-                  _currentUserData!.copyWith(languageSettings: updatedSettings);
-            });
-          }
+              currentLangSettings.copyWith(learningProgress: {
+            ...currentLangSettings
+                .learningProgress, // Сохраняем прогресс по другим языкам
+            _currentLearningLanguage: newLangProgForLevel,
+          });
+          updatedUserData = _currentUserData!
+              .copyWith(languageSettings: () => updatedSettings);
         }
+      } else {
+        // Если languageSettings вообще null, создаем их с нуля
+        print(
+            "LearnPage: User languageSettings is null. Creating new settings with level $nextLevel for $_currentLearningLanguage.");
+        final newLangProgForLevel =
+            UserLanguageProgress(level: nextLevel, xp: 0, lessonsCompleted: {});
+        final newOverallSettings = UserLanguageSettings(
+            currentLearningLanguage: _currentLearningLanguage,
+            interfaceLanguage:
+                'russian', // или другой язык интерфейса по умолчанию
+            learningProgress: {
+              _currentLearningLanguage: newLangProgForLevel,
+            });
+        updatedUserData = _currentUserData!
+            .copyWith(languageSettings: () => newOverallSettings);
       }
+
+      if (mounted && updatedUserData != null) {
+        setState(() {
+          _currentUserData = updatedUserData;
+          // _currentStreak, _lives и т.д. уже должны быть актуальны, если они часть _currentUserData
+        });
+      }
+
       if (mounted) {
         showDialog(
           context: context,
@@ -587,8 +989,10 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
       }
     } catch (e, s) {
       print("Error advancing user level: $e\nStack: $s");
-      if (mounted)
-        Toast.show("Ошибка при повышении уровня.", duration: Toast.lengthShort);
+      if (mounted) {
+        Toast.show("Ошибка при повышении уровня.",
+            duration: Toast.lengthShort, gravity: Toast.center);
+      }
     }
   }
 
@@ -665,6 +1069,7 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
           children: [
             _buildCustomAppBar(
                 canShowLanguageSelector, availableLangsForSelector),
+            _buildDailyGoalProgress(),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -673,12 +1078,17 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
     );
   }
 
+  // lib/pages/LearnPage.dart -> внутри класса _LearnPageState
+
   Widget _buildCustomAppBar(
       bool canShowLanguageSelector, List<String> availableLangsForSelector) {
-    return Material(
-      elevation: 3.0,
-      child: Container(
-        decoration: BoxDecoration(
+    // ================== НОВАЯ ЛОГИКА ЗДЕСЬ ==================
+    // Если идет загрузка, показываем максимально простой AppBar
+    if (_isLoading) {
+      return Material(
+        elevation: 3.0,
+        child: Container(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
                 darkOrange,
@@ -688,66 +1098,117 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  spreadRadius: 1,
-                  blurRadius: 4,
-                  offset: Offset(0, 2))
-            ]),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Center(
+              child: Text(
+                "LingoQuest",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: textOnOrange,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    // =======================================================
+
+    // Если загрузка завершена, строим полный AppBar
+    return Material(
+      elevation: 3.0,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [darkOrange, primaryOrange, accentYellow.withOpacity(0.8)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              spreadRadius: 1,
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SizedBox(width: canShowLanguageSelector ? 0 : 40),
+                // 1. Левая группа
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildStreakIndicator(),
+                    if (_currentUserData != null &&
+                        _currentUserData!.isDoubleXpActive)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Tooltip(
+                          message: "Двойной опыт активен!",
+                          child: Icon(
+                            Icons.flash_on_rounded,
+                            color: Colors.yellow.shade600,
+                            size: 26,
+                            shadows: const [
+                              Shadow(color: Colors.black38, blurRadius: 4)
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+
+                // 2. Центральный элемент
                 Expanded(
                   child: Center(
-                    child: _isLoading || _currentUserData == null
-                        ? Text("LingoQuest",
-                            style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: textOnOrange))
-                        : Text(
-                            _getLanguageDisplayName(_currentLearningLanguage),
-                            style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: textOnOrange,
-                                letterSpacing: 0.5),
-                          ),
+                    child: Text(
+                      _getLanguageDisplayName(_currentLearningLanguage),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: textOnOrange,
+                        letterSpacing: 0.5,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-                if (canShowLanguageSelector)
-                  SizedBox(
-                    width: 130,
-                    child: LanguageSelectorWidget(
-                      // Убираем несуществующие параметры
-                      availableLanguages: availableLangsForSelector,
-                      currentLanguageCode: _currentLearningLanguage,
-                      onLanguageSelected: _onLanguageChanged,
-                      // textColor: textOnOrange, // УБРАНО
-                      // dropdownColor: darkOrange.withOpacity(0.9), // УБРАНО
-                      // iconColor: textOnOrange.withOpacity(0.8), // УБРАНО
-                    ),
-                  )
-                else if (_currentUserData != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16.0),
-                    child: Text(
-                        _getLanguageDisplayName(_currentLearningLanguage,
-                            short: true),
-                        style: TextStyle(
-                            color: textOnOrange,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18)),
-                  )
-                else
-                  const SizedBox(width: 40),
-                if (_currentUserData != null) _buildLivesIndicator(),
+
+                // 3. Правая группа
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (canShowLanguageSelector)
+                      SizedBox(
+                        width: 130,
+                        child: LanguageSelectorWidget(
+                          availableLanguages: availableLangsForSelector,
+                          currentLanguageCode: _currentLearningLanguage,
+                          onLanguageSelected: _onLanguageChanged,
+                        ),
+                      )
+                    else if (_currentUserData != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: Text(
+                            _getLanguageDisplayName(_currentLearningLanguage,
+                                short: true),
+                            style: TextStyle(
+                                color: textOnOrange,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18)),
+                      ),
+                    if (_currentUserData != null) _buildLivesIndicator(),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1017,7 +1478,7 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
             Navigator.pushReplacementNamed(context, '/games');
             break;
           case 2:
-            Navigator.pushReplacementNamed(context, '/chats');
+            Navigator.pushReplacementNamed(context, '/league');
             break;
           case 3:
             Navigator.pushReplacementNamed(context, '/modules_view');
@@ -1046,11 +1507,11 @@ class _LearnPageState extends State<LearnPage> with TickerProviderStateMixin {
             activeIcon: Icon(Icons.extension_rounded, color: selectedColor),
             label: 'Игры'), // puzzle
         BottomNavigationBarItem(
-            icon: Icon(Icons.chat_outlined),
-            activeIcon: Icon(Icons.chat_rounded, color: selectedColor),
-            label: 'Чаты'),
+            icon: Icon(Icons.shield_outlined),
+            activeIcon: Icon(Icons.shield, color: selectedColor),
+            label: 'Лига'),
         BottomNavigationBarItem(
-            icon: Icon(Icons.tune_outlined),
+            icon: Icon(Icons.book_outlined),
             activeIcon: Icon(Icons.book, color: selectedColor),
             label: 'Материал'),
         BottomNavigationBarItem(
@@ -1283,6 +1744,9 @@ class _AdventureLessonNode extends StatelessWidget {
       case 'newaudiocollection':
       case 'audiowordbanksentence':
         lessonTypeIcon = Icons.mic_external_on_rounded;
+        break;
+      case 'speaking_pronunciation': // <--- НАШ НОВЫЙ ТИП
+        lessonTypeIcon = Icons.record_voice_over_rounded;
         break;
       default:
         lessonTypeIcon = Icons.sticky_note_2_rounded;

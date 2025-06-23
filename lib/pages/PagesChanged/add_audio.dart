@@ -5,7 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_languageapplicationmycourse_2/database/collections/audiolessons.dart';
+import 'package:flutter_languageapplicationmycourse_2/database/storage/audiolessons.dart';
 import 'package:uuid/uuid.dart';
 import 'package:toast/toast.dart';
 import 'package:audioplayers/audioplayers.dart';

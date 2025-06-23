@@ -4,11 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
-// Убедитесь, что путь к toast.dart правильный, если вы его используете.
-// Возможно, вы используете fluttertoast или другую библиотеку.
-// Если это кастомный Toast, убедитесь, что он инициализирован.
-// Для примера я буду использовать SnackBar, так как он встроен во Flutter.
-// import 'package:toast/toast.dart';
+import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart'; // <-- ВАЖНО: Убедитесь, что UserRoles здесь или импортированы
 
 class RegistrationPage extends StatefulWidget {
   const RegistrationPage({Key? key}) : super(key: key);
@@ -32,7 +28,6 @@ class _RegistrationPageState extends State<RegistrationPage>
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // Объявляем контроллер и анимации, но не инициализируем здесь
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -40,7 +35,6 @@ class _RegistrationPageState extends State<RegistrationPage>
   final Color primaryOrange = const Color.fromARGB(255, 255, 132, 49);
   final Color accentOrange = const Color.fromARGB(255, 255, 160, 90);
   final Color darkOrange = const Color.fromARGB(255, 230, 100, 20);
-  // ... остальные цвета ...
 
   @override
   void initState() {
@@ -49,24 +43,13 @@ class _RegistrationPageState extends State<RegistrationPage>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
-
-    // --- ИНИЦИАЛИЗАЦИЯ АНИМАЦИЙ ПЕРЕНЕСЕНА СЮДА ---
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeIn,
-      ),
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
-
     _slideAnimation =
         Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.elasticOut,
-      ),
+      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
     );
-    // --- КОНЕЦ ИНИЦИАЛИЗАЦИИ АНИМАЦИЙ ---
-
     _animationController.forward();
   }
 
@@ -81,7 +64,7 @@ class _RegistrationPageState extends State<RegistrationPage>
     super.dispose();
   }
 
-  Future<void> _selectDate(BuildContext context) async {
+ Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ??
@@ -114,44 +97,35 @@ class _RegistrationPageState extends State<RegistrationPage>
   }
 
   void _showSnackBar(String message, {bool isError = true}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.redAccent : Colors.green,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 
   Future<void> _registerUser() async {
     if (!_formKey.currentState!.validate()) {
-      // Используем FormKey для валидации
       return;
     }
-    // Проверка даты рождения, если она не часть Form
     if (_selectedDate == null) {
       _showSnackBar('Пожалуйста, выберите дату рождения.');
       return;
     }
-
-    // Дополнительная проверка возраста (уже есть в вашем коде, но здесь для полноты)
     int age = DateTime.now().year - _selectedDate!.year;
     if (DateTime.now().month < _selectedDate!.month ||
-        (DateTime.now().month == _selectedDate!.month &&
-            DateTime.now().day < _selectedDate!.day)) {
+        (DateTime.now().month == _selectedDate!.month && DateTime.now().day < _selectedDate!.day)) {
       age--;
     }
-    if (age < 6) {
-      _showSnackBar('Вы должны быть старше 6 лет.');
-      return;
-    } else if (age > 100) {
-      _showSnackBar('Пожалуйста, укажите корректный возраст (до 100 лет).');
-      return;
-    }
+    if (age < 6) { _showSnackBar('Вы должны быть старше 6 лет.'); return; }
+    if (age > 100) { _showSnackBar('Пожалуйста, укажите корректный возраст (до 100 лет).'); return; }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       UserCredential userCredential =
@@ -159,85 +133,99 @@ class _RegistrationPageState extends State<RegistrationPage>
         email: emailController.text.trim(),
         password: passwordController.text,
       );
-
       User? user = userCredential.user;
 
       if (user != null) {
         String id = user.uid;
-        // Опционально: отправить письмо для верификации
-        // await user.sendEmailVerification();
-        // _showSnackBar('Письмо для подтверждения отправлено на ваш email.', isError: false);
+        
+        // Опционально: отправить письмо для верификации email
+        try {
+          await user.sendEmailVerification();
+          _showSnackBar('Письмо для подтверждения отправлено на ваш email.', isError: false);
+        } catch (e) {
+          print("Error sending verification email: $e");
+          _showSnackBar('Не удалось отправить письмо для подтверждения email.');
+        }
 
-        // Создание документа пользователя в Firestore
-        // Адаптируйте usersCollection.addUserCollection, чтобы он не добавлял языковые поля
-        await usersCollection.addUserCollection(
+        // Использование вашего существующего метода addUserCollection,
+        // который, как мы предположили, устанавливает базовые поля, включая роль 'user'.
+        // Убедитесь, что он не создает languageSettings, так как язык еще не выбран.
+        await usersCollection.addUserCollection( // Предполагаем, что этот метод создает базовый документ
           id,
           firstNameController.text.trim(),
           lastNameController.text.trim(),
           emailController.text.trim(),
           birthEditingController.text,
-          'default_avatar.png', // Стандартный аватар или ссылка на него
-          '', // Язык оставляем пустым
+          'default_avatar.png', // Или другой стандартный аватар
+          null, // Передаем null или пустую строку для языка, т.к. он выбирается позже
         );
 
-        // Добавление/обновление основных полей пользователя, не зависящих от языка
+        // --- ДОБАВЛЕНИЕ/ОБНОВЛЕНИЕ ПОЛЕЙ ДЛЯ ЦЕЛЕЙ И СТРИКОВ ---
+        // Используем SetOptions(merge: true) для добавления новых полей или обновления существующих,
+        // не перезаписывая весь документ, если addUserCollection уже что-то создал.
         await FirebaseFirestore.instance.collection('users').doc(id).set({
+          // Основные поля, которые могли быть установлены в addUserCollection,
+          // здесь можно их подтвердить или установить, если addUserCollection их не ставит.
           'firstName': firstNameController.text.trim(),
           'lastName': lastNameController.text.trim(),
           'email': emailController.text.trim(),
           'birthDate': birthEditingController.text,
-          'profileImageUrl': 'default_avatar.png', // Убедитесь, что ассет есть
+          'profileImageUrl': 'default_avatar.png',
+          'inventory': {}, 
+          'role': UserRoles.user, // Явно устанавливаем роль пользователя
           'lives': 5,
           'lastRestored': Timestamp.now(),
-          'registrationDate': Timestamp.now(),
-          'selectedLanguage': null, // Явно указываем, что язык не выбран
-          'languageLevel': null, // Уровень тоже не выбран
+          'registrationDate': Timestamp.now(), // Это должно быть установлено при создании документа
+          
+          // Поля для языковых настроек (будут null или пустыми до выбора языка)
+          'languageSettings': null, // или UserLanguageSettings.empty().toMap() если модель это поддерживает и это нужно
+
+          // Новые поля для целей и стриков
+          'dailyGoalXp': 50,        // Начальная цель по XP
+          'currentStreak': 0,       // Начальный стрик
+          'lastGoalCompletionDate': null,
+           // Нет выполненных целей
+          'streakFreezes': 0,  
+          'lastStreakCheckDate': Timestamp.now(),
+          'leagueId': 'bronze',      
+          'weeklyXp': 0,
+          'unlockedAchievements': {},
+          'totalXp': 0, 
+          // Начальное количество заморозок
         }, SetOptions(merge: true));
+        // ------------------------------------------------------
 
         if (mounted) {
-          _showSnackBar('Регистрация успешна!', isError: false);
-          // Перенаправляем на страницу выбора языка, заменяя текущий маршрут
+          _showSnackBar('Регистрация успешна! Теперь выберите язык.', isError: false);
           Navigator.pushReplacementNamed(context, '/selectLanguage');
         }
       } else {
-        if (mounted)
-          _showSnackBar('Не удалось создать пользователя. Попробуйте снова.');
+        if (mounted) _showSnackBar('Не удалось создать пользователя. Попробуйте снова.');
       }
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {
-        case 'weak-password':
-          message = 'Пароль слишком простой. Минимальная длина - 6 символов.';
-          break;
-        case 'email-already-in-use':
-          message = 'Аккаунт с такой почтой уже существует.';
-          break;
-        case 'invalid-email':
-          message = 'Неверный адрес электронной почты.';
-          break;
-        default:
-          message = 'Ошибка регистрации: ${e.message}';
+        case 'weak-password': message = 'Пароль слишком простой. Минимум 6 символов.'; break;
+        case 'email-already-in-use': message = 'Аккаунт с такой почтой уже существует.'; break;
+        case 'invalid-email': message = 'Неверный адрес электронной почты.'; break;
+        default: message = 'Ошибка регистрации. Попробуйте позже.'; // e.message может быть слишком техническим
+          print("FirebaseAuthException on registration: ${e.code} - ${e.message}");
       }
       if (mounted) _showSnackBar(message);
     } catch (e) {
       if (mounted) {
-        _showSnackBar(
-            'Произошла неизвестная ошибка. Пожалуйста, попробуйте еще раз.');
+        _showSnackBar('Произошла неизвестная ошибка. Пожалуйста, попробуйте еще раз.');
         print("Ошибка регистрации: $e");
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // ... (UI остается таким же, как вы предоставили)
     final screenHeight = MediaQuery.of(context).size.height;
-    // ToastContext().init(context); // Заменено на SnackBar
 
     return Scaffold(
       body: Container(
@@ -265,11 +253,10 @@ class _RegistrationPageState extends State<RegistrationPage>
                     child: Form(
                       key: _formKey,
                       child: Column(
-                        mainAxisSize: MainAxisSize
-                            .min, // Чтобы карточка не растягивалась на весь экран
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Image.asset(
-                            "images/LingoQuest_logo.png", // Убедитесь, что логотип есть
+                            "images/LingoQuest_logo.png",
                             height: screenHeight * 0.08,
                           ),
                           SizedBox(height: screenHeight * 0.02),
@@ -288,13 +275,8 @@ class _RegistrationPageState extends State<RegistrationPage>
                             hintText: 'Введите ваше имя',
                             prefixIcon: Icons.person_outline,
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Пожалуйста, введите имя.';
-                              }
-                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$')
-                                  .hasMatch(value)) {
-                                return 'Имя может содержать только буквы.';
-                              }
+                              if (value == null || value.isEmpty) return 'Пожалуйста, введите имя.';
+                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$').hasMatch(value)) return 'Имя может содержать только буквы.';
                               return null;
                             },
                           ),
@@ -305,13 +287,8 @@ class _RegistrationPageState extends State<RegistrationPage>
                             hintText: 'Введите вашу фамилию',
                             prefixIcon: Icons.person_search_outlined,
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Пожалуйста, введите фамилию.';
-                              }
-                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$')
-                                  .hasMatch(value)) {
-                                return 'Фамилия может содержать только буквы.';
-                              }
+                              if (value == null || value.isEmpty) return 'Пожалуйста, введите фамилию.';
+                              if (!RegExp(r'^[a-zA-Zа-яА-ЯёЁ\s]+$').hasMatch(value)) return 'Фамилия может содержать только буквы.';
                               return null;
                             },
                           ),
@@ -323,13 +300,8 @@ class _RegistrationPageState extends State<RegistrationPage>
                             prefixIcon: Icons.email_outlined,
                             keyboardType: TextInputType.emailAddress,
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Пожалуйста, введите email.';
-                              }
-                              if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$')
-                                  .hasMatch(value)) {
-                                return 'Введите корректный email.';
-                              }
+                              if (value == null || value.isEmpty) return 'Пожалуйста, введите email.';
+                              if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value)) return 'Введите корректный email.';
                               return null;
                             },
                           ),
@@ -341,56 +313,31 @@ class _RegistrationPageState extends State<RegistrationPage>
                             prefixIcon: Icons.lock_outline,
                             obscureText: _obscurePassword,
                             suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined,
-                                color: primaryOrange,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
+                              icon: Icon( _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: primaryOrange,),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Пожалуйста, введите пароль.';
-                              }
-                              if (value.length < 6) {
-                                return 'Пароль должен быть не менее 6 символов.';
-                              }
+                              if (value == null || value.isEmpty) return 'Пожалуйста, введите пароль.';
+                              if (value.length < 6) return 'Пароль должен быть не менее 6 символов.';
                               return null;
                             },
                           ),
                           SizedBox(height: screenHeight * 0.02),
                           TextFormField(
-                            // Используем TextFormField для валидации
                             controller: birthEditingController,
                             readOnly: true,
                             onTap: () => _selectDate(context),
                             decoration: InputDecoration(
                               labelText: 'Дата рождения',
                               hintText: 'Выберите дату',
-                              prefixIcon: Icon(Icons.calendar_today_outlined,
-                                  color: primaryOrange),
+                              prefixIcon: Icon(Icons.calendar_today_outlined, color: primaryOrange),
                               filled: true,
                               fillColor: Colors.grey[100],
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12.0),
-                                borderSide: BorderSide.none,
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12.0),
-                                borderSide: BorderSide(
-                                    color: primaryOrange, width: 2.0),
-                              ),
+                              border: OutlineInputBorder( borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide.none,),
+                              focusedBorder: OutlineInputBorder( borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: primaryOrange, width: 2.0),),
                             ),
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Пожалуйста, выберите дату рождения.';
-                              }
-                              // Дополнительная проверка возраста уже есть в _registerUser
+                              if (value == null || value.isEmpty) return 'Пожалуйста, выберите дату рождения.';
                               return null;
                             },
                           ),
@@ -405,35 +352,17 @@ class _RegistrationPageState extends State<RegistrationPage>
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: primaryOrange,
                                       foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12.0),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 14),
-                                      textStyle: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                     ),
                                     child: const Text("Зарегистрироваться"),
                                   ),
                                 ),
                           SizedBox(height: screenHeight * 0.02),
                           TextButton(
-                            onPressed: _isLoading
-                                ? null
-                                : () {
-                                    Navigator.popAndPushNamed(context, '/auth');
-                                  },
-                            child: Text(
-                              "Уже есть аккаунт? Войти",
-                              style: TextStyle(
-                                color: darkOrange,
-                                fontWeight: FontWeight.w600,
-                                // decoration: TextDecoration.underline,
-                              ),
-                            ),
+                            onPressed: _isLoading ? null : () => Navigator.popAndPushNamed(context, '/auth'),
+                            child: Text("Уже есть аккаунт? Войти", style: TextStyle(color: darkOrange, fontWeight: FontWeight.w600)),
                           ),
                         ],
                       ),
@@ -458,7 +387,7 @@ class _RegistrationPageState extends State<RegistrationPage>
     Widget? suffixIcon,
     String? Function(String?)? validator,
   }) {
-    return TextFormField(
+     return TextFormField(
       controller: controller,
       obscureText: obscureText,
       keyboardType: keyboardType,
@@ -468,37 +397,17 @@ class _RegistrationPageState extends State<RegistrationPage>
         prefixIcon: Icon(prefixIcon, color: primaryOrange),
         suffixIcon: suffixIcon,
         filled: true,
-        fillColor: Colors.grey[100], // Светлый фон для поля
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12.0),
-          borderSide: BorderSide.none, // Без видимой границы по умолчанию
-        ),
-        enabledBorder: OutlineInputBorder(
-          // Граница, когда поле не в фокусе
-          borderRadius: BorderRadius.circular(12.0),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        focusedBorder: OutlineInputBorder(
-          // Граница, когда поле в фокусе
-          borderRadius: BorderRadius.circular(12.0),
-          borderSide: BorderSide(color: primaryOrange, width: 2.0),
-        ),
-        errorBorder: OutlineInputBorder(
-          // Граница при ошибке
-          borderRadius: BorderRadius.circular(12.0),
-          borderSide: BorderSide(color: Colors.redAccent, width: 1.5),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          // Граница при ошибке и в фокусе
-          borderRadius: BorderRadius.circular(12.0),
-          borderSide: BorderSide(color: Colors.redAccent, width: 2.0),
-        ),
+        fillColor: Colors.grey[100], 
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: Colors.grey[300]!)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: BorderSide(color: primaryOrange, width: 2.0)),
+        errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: const BorderSide(color: Colors.redAccent, width: 1.5)),
+        focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12.0), borderSide: const BorderSide(color: Colors.redAccent, width: 2.0)),
         labelStyle: TextStyle(color: Colors.grey[700]),
         hintStyle: TextStyle(color: Colors.grey[500]),
       ),
       validator: validator,
-      textInputAction:
-          TextInputAction.next, // Переход на следующее поле по кнопке "Далее"
+      textInputAction: TextInputAction.next,
     );
   }
 }

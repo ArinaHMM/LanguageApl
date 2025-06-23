@@ -55,6 +55,13 @@ dependencies:
   fl_chart: ^1.0.0
   pdf: ^3.11.3
   screenshot: ^3.0.0
+  flutter_sound: ^9.28.0
+  speech_to_text: ^7.0.0
+  string_similarity: ^2.0.0
+  file_picker: ^10.2.0
+  uuid: ^4.3.3
+  foundation: ^0.0.5
+   
 
   
 

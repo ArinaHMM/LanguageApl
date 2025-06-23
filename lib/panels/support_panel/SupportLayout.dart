@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 // Предполагаем, что AdminAuthService используется и для сотрудников поддержки,
 // либо у вас есть аналогичный SupportAuthService.
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_auth_service.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_auth_service.dart';
 // Импортируем определения маршрутов поддержки из app_router.dart
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/routing/app_router.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/routing/app_router.dart';
 
 class SupportLayout extends StatefulWidget {
   final Widget child; // Контент текущей страницы поддержки
@@ -78,7 +78,8 @@ class _SupportLayoutState extends State<SupportLayout> {
     // Для веб-интерфейса можно использовать NavigationRail или более широкое боковое меню,
     // если ширина экрана позволяет. Drawer хорошо подходит для мобильных и узких веб-экранов.
     bool useDrawer = MediaQuery.of(context).size.width < 700; // Примерный порог
-
+ final screenWidth = MediaQuery.of(context).size.width;
+ bool isNavigationRailExtended = screenWidth > 950; 
     Widget navigationWidget;
     if (useDrawer) {
       navigationWidget = Drawer(/* ... как было ... */);
@@ -88,46 +89,40 @@ class _SupportLayoutState extends State<SupportLayout> {
         onDestinationSelected: (int index) {
           _onItemTapped(_menuItems[index].name, context);
         },
-        labelType: NavigationRailLabelType.all,
+        labelType: isNavigationRailExtended 
+            ? NavigationRailLabelType.all // Показываем метки, если расширено
+            : NavigationRailLabelType.none, // Скрываем метки, если сжато (только иконки)
+        // -------------------------
         backgroundColor: Theme.of(context).canvasColor,
         elevation: 2,
-        extended: MediaQuery.of(context).size.width > 950, // Порог для extended
+        extended: isNavigationRailExtended,
         minExtendedWidth: 200,
         leading: Padding(
           padding: const EdgeInsets.symmetric(vertical: 20.0),
-          child: Icon(Icons.support_agent_rounded,
-              size: 36, color: Colors.blueGrey.shade700),
+          child: Icon(Icons.support_agent_rounded, size: 36, color: Colors.blueGrey.shade700),
         ),
         destinations: _menuItems.map((item) {
           return NavigationRailDestination(
             icon: Icon(item.icon),
             selectedIcon: Icon(item.icon),
-            label: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
-              child: Text(item.label),
-            ),
+            label: Text(item.label), // Метка всегда передается, но labelType решает, показывать ли ее
           );
         }).toList(),
-        selectedIconTheme: IconThemeData(color: Colors.blueGrey.shade800),
-        unselectedIconTheme: IconThemeData(color: Colors.blueGrey.shade500),
-        selectedLabelTextStyle: TextStyle(
-            color: Colors.blueGrey.shade900, fontWeight: FontWeight.bold),
-        unselectedLabelTextStyle: TextStyle(color: Colors.blueGrey.shade700),
-        // --- ДОБАВЛЯЕМ КНОПКУ ВЫХОДА В TRAILING ---
+         selectedIconTheme: IconThemeData(color: Colors.blueGrey.shade800),
+         unselectedIconTheme: IconThemeData(color: Colors.blueGrey.shade500),
+         selectedLabelTextStyle: TextStyle(color: Colors.blueGrey.shade900, fontWeight: FontWeight.bold),
+         unselectedLabelTextStyle: TextStyle(color: Colors.blueGrey.shade700),
         trailing: Expanded(
-          // Expanded, чтобы кнопка была внизу
           child: Align(
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 20.0),
               child: IconButton(
-                icon:
-                    Icon(Icons.logout_rounded, color: Colors.blueGrey.shade600),
+                icon: Icon(Icons.logout_rounded, color: Colors.blueGrey.shade600),
                 tooltip: 'Выйти',
                 iconSize: 28,
                 onPressed: () async {
                   await _authService.signOut();
-                  // GoRouter redirect обработает переход на логин
                 },
               ),
             ),
@@ -135,7 +130,6 @@ class _SupportLayoutState extends State<SupportLayout> {
         ),
       );
     }
-
     return Scaffold(
       appBar: useDrawer
           ? AppBar(

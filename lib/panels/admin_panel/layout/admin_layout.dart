@@ -41,6 +41,11 @@ class _AdminLayoutState extends State<AdminLayout> {
       label: 'Управление контентом',
       route: AdminRoutes.manageContent
     ),
+     (
+      icon: Icons.record_voice_over_rounded, // Иконка для упражнений на говорение
+      label: 'Добавить урок говорения',
+      route: AdminRoutes.addSpeakingExercise // Используем новый маршрут
+    ),
     (
       icon: Icons.note_add_rounded,
       label: 'Добавить учебный контент',

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Для StreamBuilder
 import 'firebase_options.dart';
-import 'admin_panel/routing/app_router.dart'; // Импортируем наш роутер
+import 'panels/admin_panel/routing/app_router.dart'; // Импортируем наш роутер
 // Заглушки или реальные импорты для страниц, если они не вызываются только через GoRouter
 // import 'admin_panel/auth/admin_login_page.dart';
 // import 'admin_panel/dashboard/admin_dashboard_page.dart';
@@ -73,18 +73,3 @@ class AdminAppRoot extends StatelessWidget {
     );
   }
 }
-
-// Старый AdminApp и AdminHomePage теперь не нужны здесь,
-// так как GoRouter будет управлять тем, что отображается.
-// AdminHomePage (или AdminDashboardPage) будет вызываться через GoRouter,
-// а AuthWrapper (если вы его использовали ранее для простого MaterialApp.home)
-// теперь не нужен, так как логика редиректа встроена в GoRouter.
-
-// ----- Важно: -----
-// Убедитесь, что в файле lib/admin_panel/routing/app_router.dart:
-// 1. Правильно импортированы все страницы (AdminLoginPage, AdminDashboardPage,
-//    AdminAddInteractiveLessonPage, AdminAddAudioWordBankLessonPage, AdminLayout).
-// 2. В GoRouter определены маршруты для этих страниц.
-// 3. Логика redirect в GoRouter корректно обрабатывает состояние аутентификации
-//    и проверку роли администратора (через AdminAuthService.isAdmin).
-// 4. ShellRoute настроен для использования AdminLayout, если вы хотите общий Scaffold.

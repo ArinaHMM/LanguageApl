@@ -20,7 +20,7 @@ class _ViewGamesPageState extends State<ViewGamesPage> {
   final Color learnPageDarkOrange = const Color(0xFFF57C00);
   // --------------------------------
 
-  String? _selectedLanguage = 'english'; // Язык по умолчанию
+  String? _selectedLanguage = 'english'; 
 
   final Map<String, String> _languageOptions = {
     'english': 'Английский',
@@ -72,7 +72,7 @@ class _ViewGamesPageState extends State<ViewGamesPage> {
         // Если это был переход с другой вкладки, setState уже обновил UI.
         break;
       case 2: // Чаты
-        Navigator.pushReplacementNamed(context, '/chats');
+        Navigator.pushReplacementNamed(context, '/league');
         break;
       case 3: // Материал (бывшие Настройки)
         Navigator.pushReplacementNamed(context, '/modules_view');
@@ -326,13 +326,13 @@ class _ViewGamesPageState extends State<ViewGamesPage> {
             activeIcon: Icon(Icons.extension_rounded, color: selectedColor),
             label: 'Игры'),
         BottomNavigationBarItem(
-            icon: const Icon(Icons.chat_outlined),
-            activeIcon: Icon(Icons.chat_rounded, color: selectedColor),
-            label: 'Чаты'),
+            icon: const Icon(Icons.shield_outlined),
+            activeIcon: Icon(Icons.shield, color: selectedColor),
+            label: 'Лига'),
         BottomNavigationBarItem(
             icon: const Icon(Icons.book_outlined), // Иконка для Материал
-            activeIcon: Icon(Icons.book_rounded, color: selectedColor),
-            label: 'Материал'),
+            activeIcon: Icon(Icons.book, color: selectedColor),
+            label: 'Материалы'),
         BottomNavigationBarItem(
             icon: const Icon(Icons.person_pin_circle_outlined),
             activeIcon:

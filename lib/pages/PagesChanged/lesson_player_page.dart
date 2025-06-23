@@ -246,18 +246,20 @@ class _LessonPlayerPageState extends State<LessonPlayerPage> with TickerProvider
       }
     }
     
-    // Теперь проверяем выбранный ответ
     for (var optionEntry in optionsForTargetLanguage) {
       if (optionEntry is Map) {
         Map<String, dynamic> optionMap = Map<String, dynamic>.from(optionEntry);
         if (optionMap['text']?.toString() == localizedSelectedOptionText) {
             if (optionMap['isCorrect'] == true) {
                 foundCorrect = true;
-                _feedbackMessage = optionMap['feedback']?.toString() ?? _currentExercise!.getLocalizedFeedbackCorrect(_userInterfaceLanguage);
+                _feedbackMessage = optionMap['feedback']?.toString() 
+                ?? _currentExercise!.getLocalizedFeedbackCorrect(_userInterfaceLanguage);
             } else {
-                 _feedbackMessage = optionMap['feedback']?.toString() ?? _currentExercise!.getLocalizedFeedbackIncorrect(_userInterfaceLanguage, actualCorrectAnswer: correctOptionTextInTargetLang);
+                 _feedbackMessage = optionMap['feedback']?.toString() 
+                 ?? _currentExercise!.getLocalizedFeedbackIncorrect(_userInterfaceLanguage, 
+                 actualCorrectAnswer: correctOptionTextInTargetLang);
             }
-            break; // Выбранная опция найдена, выходим из цикла
+            break; 
         }
       }
     }

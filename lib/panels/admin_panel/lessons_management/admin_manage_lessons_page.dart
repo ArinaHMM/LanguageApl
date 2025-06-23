@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Для Timestamp, если используется напрямую
 import 'package:toast/toast.dart'; // Если вы хотите использовать Toast
 // Замените пути на ваши реальные пути к моделям и сервисам
-import '../../database/collections/lessons_collections.dart';
-import '../../models/lesson_model.dart';
-import '../../models/audiolessons_service.dart'; // Для AudioWordBankLessonsService
+import '../../../database/collections/lessons_collections.dart';
+import '../../../models/lesson_model.dart';
+import '../../../models/audiolessons_service.dart'; // Для AudioWordBankLessonsService
 import 'dart:math' as math; // Для math.min
 
 // Предположим, у вас есть этот файл или аналогичные константы где-то

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 // Модели и коллекции
 import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart';
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart';
+import 'package:flutter_languageapplicationmycourse_2/pages/PagesChanged/voiceaddpage.dart';
 
 // Сервис аутентификации
 import '../auth/admin_auth_service.dart';
@@ -12,20 +13,20 @@ import '../auth/admin_auth_service.dart';
 // lib/admin_panel/routing/app_router.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_addUserPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_managecontentpage.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_users.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/lessons_management/admin_manage_lessons_page.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/support_panel/SupportChatPage.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/support_panel/SupportDashBoard.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/support_panel/SupportLayout.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_addUserPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_managecontentpage.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_users.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/lessons_management/admin_manage_lessons_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/support_panel/SupportChatPage.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/support_panel/SupportDashBoard.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/support_panel/SupportLayout.dart';
 import 'package:flutter_languageapplicationmycourse_2/models/user_model.dart'; // Для UserRoles
 import 'package:flutter_languageapplicationmycourse_2/database/collections/users_collections.dart'; // Для UsersCollection
 
 // Импорты страниц Админки
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/auth/admin_login_page.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/dashboard/admin_dashboard_page.dart';
-import 'package:flutter_languageapplicationmycourse_2/admin_panel/layout/admin_layout.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/auth/admin_login_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/dashboard/admin_dashboard_page.dart';
+import 'package:flutter_languageapplicationmycourse_2/panels/admin_panel/layout/admin_layout.dart';
 // ------------------------------------
 
 // Импорты ваших страниц добавления уроков (если они используются в админке)
@@ -51,6 +52,7 @@ class AdminRoutes {
   static const String addUser = '/admin/users/add';
   static const String addContent = '/admin/content/add';
   static const String manageContent = '/admin/content/manage';
+  static const String addSpeakingExercise = '/admin/lessons/speaking/add';
 }
 
 class AdminRouteNames {
@@ -63,6 +65,7 @@ class AdminRouteNames {
   static const String addUser = 'admin-add-user';
   static const String addContent = 'admin-add-content';
   static const String manageContent = 'admin-manage-content';
+  static const String addSpeakingExercise = 'admin-add-speaking-exercise';
 }
 
 class SupportRoutes {
@@ -129,6 +132,13 @@ class AppRouter {
           GoRoute(path: AdminRoutes.addUser, name: AdminRouteNames.addUser, builder: (context, state) => const AdminAddUserPage()),
           GoRoute(path: AdminRoutes.addContent, name: AdminRouteNames.addContent, builder: (context, state) => const AdminAddContentPage()),
           GoRoute(path: AdminRoutes.manageContent, name: AdminRouteNames.manageContent, builder: (context, state) => const AdminManageContentPage()),
+        GoRoute(
+            path: AdminRoutes.addSpeakingExercise,
+            name: AdminRouteNames.addSpeakingExercise,
+            builder: (BuildContext context, GoRouterState state) {
+              return const AdminAddSpeakingExercisePage(); 
+            },
+          ),
         ],
       ),
 

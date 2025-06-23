@@ -10,7 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'Themes/theme.dart';
 import 'database/auth/model.dart'; // Ваша UserModel
 import 'database/auth/service.dart';
-import 'database/collections/notification_service.dart';
+import 'database/storage/notification_service.dart';
 import 'providers/user_provider.dart';
 import 'routes/routes.dart';
 
@@ -24,20 +24,16 @@ import 'package:flutter_languageapplicationmycourse_2/pages/LearnPage.dart'; // 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('main: WidgetsFlutterBinding.ensureInitialized() called.');
-
-  // --- ИСПОЛЬЗУЕМ ВАШИ ЯВНЫЕ FIREBASE OPTIONS ---
   await Firebase.initializeApp(
     options: const FirebaseOptions(
-      apiKey: 'AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM', // Убедитесь, что ключ актуален
+      apiKey: 'AIzaSyDg6WHmxqIAYKI_asV9lboLhxPEZD2WfnM', 
       appId: '1:343134865969:android:6a3d07a714fcb87c0de310',
       messagingSenderId: '343134865969',
       projectId: 'languageapl',
       storageBucket: 'languageapl.appspot.com',
-      // Добавьте другие необходимые параметры, если они есть (например, authDomain, databaseURL для Realtime Database)
     ),
   );
   debugPrint('main: Firebase.initializeApp() with explicit options complete.');
-  // --------------------------------------------------
 
   await requestNotificationPermissions();
   debugPrint('main: requestNotificationPermissions() complete.');
@@ -125,7 +121,7 @@ class AuthWrapper extends StatelessWidget {
           return const LearnPage(); // ЗАМЕНИТЕ LearnPage() на ваш главный экран
         } else {
           debugPrint("AuthWrapper (StreamBuilder): User is NOT logged in. Showing AuthPage.");
-          return const AuthPage();
+          return const SplashScreen();
         }
       },
     );
