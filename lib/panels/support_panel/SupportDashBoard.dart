@@ -133,8 +133,102 @@ class _SupportDashboardPageState extends State<SupportDashboardPage> {
   }
 
   Widget _buildUsersContent() {
-    return const Center(child: Text('Список пользователей'));
-  }
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16.0, 20.0, 16.0, 12.0),
+        child: Text(
+          "Список пользователей",
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: titleColor,
+              ),
+        ),
+      ),
+      Expanded(
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _firestore.collection('users').snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('Ошибка загрузки: ${snapshot.error}',
+                    style: TextStyle(color: Colors.red.shade700)),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return Center(
+                child: Text(
+                  'Нет зарегистрированных пользователей',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              );
+            }
+
+            return ListView.builder(
+              itemCount: snapshot.data!.docs.length,
+              itemBuilder: (context, index) {
+                final userDoc = snapshot.data!.docs[index];
+                final userData = userDoc.data() as Map<String, dynamic>;
+                final email = userData['email'] ?? 'Нет email';
+                final name = userData['firstName'] != null
+                    ? '${userData['firstName']} ${userData['lastName']}'.trim()
+                    : 'Без имени';
+
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blueGrey.shade200,
+                    child: Icon(Icons.person, color: Colors.blueGrey.shade800),
+                  ),
+                  title: Text(name),
+                  subtitle: Text(email),
+                  trailing: Icon(Icons.chevron_right, color: Colors.grey.shade600),
+                  onTap: () {
+                    // Действие при нажатии на пользователя
+                    // Например, открыть диалог с информацией
+                    _showUserDetails(context, userDoc.id, name, email);
+                  },
+                );
+              },
+            );
+          },
+        ),
+      ),
+    ],
+  );
+}
+
+void _showUserDetails(BuildContext context, String userId, String name, String email) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Информация о пользователе'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Имя: $name'),
+          SizedBox(height: 8),
+          Text('Email: $email'),
+          SizedBox(height: 16),
+          Text('ID: $userId', style: TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Закрыть'),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _buildEmptyState() {
     return Center(
