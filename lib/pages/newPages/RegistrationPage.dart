@@ -191,6 +191,7 @@ class _RegistrationPageState extends State<RegistrationPage>
           'weeklyXp': 0,
           'unlockedAchievements': {},
           'totalXp': 0, 
+          'lastGoalChangeDate':null,
           // Начальное количество заморозок
         }, SetOptions(merge: true));
         // ------------------------------------------------------

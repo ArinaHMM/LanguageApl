@@ -128,7 +128,7 @@ class _SpeakingPracticePageState extends State<SpeakingPracticePage> with Ticker
           print('Speech error: $errorNotification');
           if (mounted) {
             setState(() => _isListening = false);
-             _showError("Ошибка распознавания: ${errorNotification.errorMsg}");
+             _showError("Ошибка распознавания");
           }
         },
         
@@ -158,7 +158,7 @@ class _SpeakingPracticePageState extends State<SpeakingPracticePage> with Ticker
         );
       } else {
         print("Speech recognition not available");
-        _showError("Сервис распознавания речи недоступен.");
+        _showError("Не удалось! Попробуйте снова");
       }
     } else {
       // Пользователь нажал "Стоп"

@@ -29,6 +29,14 @@ class _ProfilePageState extends State<ProfilePage>
   final UsersCollection _usersCollection = UsersCollection();
   DocumentSnapshot<Map<String, dynamic>>? userDataSnapshot;
   UserModel? _currentUserModel;
+  DateTime? _lastGoalChangeDate;
+  bool _canChangeGoalToday = true;
+  final int _baseRewardThreshold = 50; // Базовый порог для награды
+  final Map<int, int> _goalRewards = {
+    100: 1, // За цель 100 XP - 1 предмет
+    150: 2, // За цель 150 XP - 2 предмета
+    200: 3, // За цель 200 XP - 3 предмета
+  };
 
   File? _pickedImageFile;
   final ImagePicker _picker = ImagePicker();
@@ -79,16 +87,23 @@ class _ProfilePageState extends State<ProfilePage>
     try {
       userDataSnapshot = await _usersCollection.getUser(currentUser!.uid);
       if (userDataSnapshot != null && userDataSnapshot!.exists) {
-        _currentUserModel =
-            UserModel.fromFirestore(userDataSnapshot!); // Парсим в UserModel
+        _currentUserModel = UserModel.fromFirestore(userDataSnapshot!);
+
+        // Загружаем дату последнего изменения цели
+        if (_currentUserModel?.lastGoalChangeDate != null) {
+          _lastGoalChangeDate = _currentUserModel!.lastGoalChangeDate?.toDate();
+          final now = DateTime.now();
+          final lastChange = _lastGoalChangeDate!;
+          _canChangeGoalToday = !(now.year == lastChange.year &&
+              now.month == lastChange.month &&
+              now.day == lastChange.day);
+        }
+
         if (mounted &&
             _animationController.status == AnimationStatus.dismissed) {
           _animationController.forward();
         }
-        if (mounted) setState(() {}); // Обновляем UI
-      } else {
-        // Обработка случая, когда документ не найден
-        print("User document not found for UID: ${currentUser!.uid}");
+        if (mounted) setState(() {});
       }
     } catch (e) {
       print("Error loading user data in ProfilePage: $e");
@@ -209,8 +224,42 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  Future<void> _giveReward(int rewardCount) async {
+    if (currentUser == null || rewardCount <= 0) return;
+
+    try {
+      // Здесь должна быть логика добавления предметов в инвентарь пользователя
+      // Например, увеличиваем счетчик случайных предметов
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .update({
+        'inventory.items': FieldValue.increment(rewardCount),
+        'lastRewardDate': DateTime.now(),
+      });
+    } catch (e) {
+      print("Ошибка при выдаче награды: $e");
+      // Можно показать сообщение об ошибке, но не прерывать весь процесс
+    }
+  }
+
   Future<void> _editDailyGoal() async {
-    if (_currentUserModel == null) return;
+    if (_currentUserModel == null || !_canChangeGoalToday) return;
+
+    // Проверяем, когда последний раз меняли цель
+    if (_lastGoalChangeDate != null) {
+      final now = DateTime.now();
+      final lastChange = _lastGoalChangeDate!;
+      _canChangeGoalToday = !(now.year == lastChange.year &&
+          now.month == lastChange.month &&
+          now.day == lastChange.day);
+
+      if (!_canChangeGoalToday) {
+        _showSnackBar(
+            "Вы можете менять цель только раз в день. Попробуйте завтра!");
+        return;
+      }
+    }
 
     TextEditingController goalController =
         TextEditingController(text: _currentUserModel!.dailyGoalXp.toString());
@@ -228,37 +277,60 @@ class _ProfilePageState extends State<ProfilePage>
                   fontWeight: FontWeight.bold)),
           content: Form(
             key: formKeyDialog,
-            child: TextFormField(
-              controller: goalController,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: 'XP в день',
-                hintText: 'Например: 50, 100, 150',
-                prefixIcon: Icon(Icons.flag_circle_outlined,
-                    color: profilePagePrimaryOrange),
-                focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: profilePagePrimaryOrange)),
-                enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.grey.shade400)),
-              ),
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly
-              ], // Только цифры
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Введите значение цели';
-                }
-                final int? goal = int.tryParse(value);
-                if (goal == null) {
-                  return 'Введите корректное число';
-                }
-                if (goal < 10 || goal > 500) {
-                  // Примерные границы
-                  return 'Цель должна быть от 10 до 500 XP';
-                }
-                return null;
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: goalController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'XP в день',
+                    hintText: 'Например: 50, 100, 150',
+                    prefixIcon: Icon(Icons.flag_circle_outlined,
+                        color: profilePagePrimaryOrange),
+                    focusedBorder: UnderlineInputBorder(
+                        borderSide:
+                            BorderSide(color: profilePagePrimaryOrange)),
+                    enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.grey.shade400)),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Введите значение цели';
+                    }
+                    final int? goal = int.tryParse(value);
+                    if (goal == null) {
+                      return 'Введите корректное число';
+                    }
+                    if (goal < 10 || goal > 500) {
+                      return 'Цель должна быть от 10 до 500 XP';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                if (_goalRewards.keys
+                    .any((g) => g > (_currentUserModel?.dailyGoalXp ?? 0)))
+                  Text(
+                    'Награда за более высокую цель:',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ..._goalRewards.entries
+                    .where((entry) =>
+                        entry.key > (_currentUserModel?.dailyGoalXp ?? 0))
+                    .map((entry) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.card_giftcard,
+                              color: profilePagePrimaryOrange, size: 20),
+                          title: Text(
+                            '${entry.key} XP: +${entry.value} предмет',
+                            style: TextStyle(fontSize: 14),
+                          ),
+                        )),
+              ],
             ),
           ),
           actions: <Widget>[
@@ -286,15 +358,49 @@ class _ProfilePageState extends State<ProfilePage>
     if (newGoal != null && newGoal != _currentUserModel!.dailyGoalXp) {
       setState(() => _isSavingGoal = true);
       try {
-        await _usersCollection
-            .updateUserCollection(currentUser!.uid, {'dailyGoalXp': newGoal});
+        // Проверяем, дает ли новая цель награду
+        int reward = 0;
+        if (newGoal > (_currentUserModel?.dailyGoalXp ?? 0)) {
+          // Находим максимальную достигнутую цель, которая дает награду
+          final eligibleRewards = _goalRewards.entries
+              .where((entry) =>
+                  entry.key <= newGoal &&
+                  entry.key > (_currentUserModel?.dailyGoalXp ?? 0))
+              .toList();
+
+          if (eligibleRewards.isNotEmpty) {
+            // Даем награду за самую высокую достигнутую цель
+            final maxRewardEntry = eligibleRewards.last;
+            reward = maxRewardEntry.value;
+
+            // Обновляем инвентарь пользователя
+            await _giveReward(reward);
+          }
+        }
+
+        await _usersCollection.updateUserCollection(currentUser!.uid, {
+          'dailyGoalXp': newGoal,
+          'lastGoalChangeDate': DateTime.now(),
+        });
+
         // Обновляем локальную модель
         if (mounted) {
           setState(() {
-            _currentUserModel =
-                _currentUserModel!.copyWith(dailyGoalXp: newGoal);
+            _currentUserModel = _currentUserModel!.copyWith(
+              dailyGoalXp: newGoal,
+              lastGoalChangeDate: () => Timestamp.fromDate(DateTime
+                  .now()), // Обертываем в ValueGetter и конвертируем в Timestamp
+            );
+            _lastGoalChangeDate = DateTime.now();
+            _canChangeGoalToday = false;
           });
-          _showSnackBar("Дневная цель обновлена: $newGoal XP!", isError: false);
+
+          String message = "Дневная цель обновлена: $newGoal XP!";
+          if (reward > 0) {
+            message += "\nВы получили $reward предмет(а) за новую цель!";
+          }
+          _showSnackBar(message,
+              isError: false, duration: Duration(seconds: 4));
         }
       } catch (e) {
         _showSnackBar("Ошибка обновления цели: $e");
@@ -747,6 +853,176 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  void _showComplaintForm() {
+    final formKey = GlobalKey<FormState>();
+    TextEditingController complaintController = TextEditingController();
+    String? selectedCategory;
+
+    showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        ),
+        builder: (context) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              left: 20,
+              right: 20,
+              top: 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Сообщить о проблеме',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Опишите проблему, с которой вы столкнулись, и мы постараемся её решить',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Form(
+                  key: formKey,
+                  child: Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        decoration: InputDecoration(
+                          labelText: 'Категория проблемы',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          prefixIcon: Icon(Icons.category_outlined,
+                              color: profilePagePrimaryOrange),
+                        ),
+                        value: selectedCategory,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'technical',
+                            child: Text('Техническая проблема'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'content',
+                            child: Text('Ошибка в контенте'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'behavior',
+                            child: Text('Проблема с пользователем'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'other',
+                            child: Text('Другое'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          selectedCategory = value;
+                        },
+                        validator: (value) {
+                          if (value == null) {
+                            return 'Пожалуйста, выберите категорию';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: complaintController,
+                        maxLines: 5,
+                        decoration: InputDecoration(
+                          labelText: 'Опишите проблему',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignLabelWithHint: true,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Пожалуйста, опишите проблему';
+                          }
+                          if (value.length < 10) {
+                            return 'Описание должно быть более подробным';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: profilePagePrimaryOrange,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            if (formKey.currentState!.validate()) {
+                              Navigator.pop(context);
+                              _showSnackBar(
+                                'Спасибо! Ваша жалоба отправлена администратору.',
+                                isError: false,
+                              );
+
+                              try {
+                                await FirebaseFirestore.instance
+                                    .collection('complaints')
+                                    .add({
+                                  'userId': currentUser?.uid,
+                                  'userEmail': currentUser?.email,
+                                  'category': selectedCategory,
+                                  'description': complaintController.text,
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                  'status': 'new',
+                                });
+                              } catch (e) {
+                                print('Error submitting complaint: $e');
+                              }
+                            }
+                          },
+                          child: const Text(
+                            'Отправить жалобу',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -939,6 +1215,33 @@ class _ProfilePageState extends State<ProfilePage>
                             ),
                             SizedBox(height: screenHeight * 0.03),
                             SizedBox(height: screenHeight * 0.03),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: Icon(Icons.report_problem_outlined,
+                                    color: profilePagePrimaryOrange),
+                                label: Text(
+                                  'Сообщить о проблеме',
+                                  style: TextStyle(
+                                    color: profilePagePrimaryOrange,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: _showComplaintForm,
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                      color: profilePagePrimaryOrange,
+                                      width: 2),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                  foregroundColor: profilePageAccentOrange,
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: screenHeight * 0.01),
                             SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(

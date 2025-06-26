@@ -81,13 +81,29 @@ class InventoryItem {
   final String description; // Описание для UI
   final String icon; // Ключ для иконки, например, "streak_freeze_icon"
 
-  const InventoryItem({
+  const InventoryItem ({
     required this.id,
     required this.quantity,
     required this.name,
     required this.description,
     required this.icon,
   });
+   InventoryItem copyWith({
+    String? id,
+    int? quantity,
+    String? name,
+    String? description,
+    String? icon,
+  }) {
+    return InventoryItem(
+      id: id ?? this.id,
+      quantity: quantity ?? this.quantity,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      icon: icon ?? this.icon,
+    );
+  }
+
 
   // Фабричный конструктор для создания объекта из данных Firestore
   factory InventoryItem.fromMap(String id, Map<String, dynamic> data) {
@@ -200,6 +216,7 @@ class UserModel {
   final UserLanguageSettings? languageSettings;
   final String role;
   final List<InventoryItem> inventory;
+  final Timestamp? lastGoalChangeDate;
 
   // Поля для целей и стриков
   final int dailyGoalXp;
@@ -215,6 +232,7 @@ class UserModel {
     required this.uid,
     required this.email,
     required this.firstName,
+    this.lastGoalChangeDate,
     required this.lastName,
     required this.birthDate,
     this.doubleXpBuffExpiresAt,
@@ -298,6 +316,7 @@ class UserModel {
       weeklyXp: data['weeklyXp'] as int? ?? 0,
       totalXp: data['totalXp'] as int? ?? 0,
       inventory: parsedInventory,
+      lastGoalChangeDate: data['lastGoalChangeDate'] as Timestamp?,
       unlockedAchievements: parsedAchievements,
     );
   }
@@ -314,6 +333,7 @@ class UserModel {
       if (profileImageUrl != null) 'image': profileImageUrl,
       'role': role,
       'lives': lives,
+       if (lastGoalChangeDate != null) 'lastGoalChangeDate': lastGoalChangeDate,
       'lastRestored': lastRestored,
       'registrationDate': registrationDate,
       if (leagueId != null) 'leagueId': leagueId,
@@ -357,6 +377,7 @@ class UserModel {
     ValueGetter<String?>? leagueId,
     int? weeklyXp,
     int? totalXp,
+    ValueGetter<Timestamp?>? lastGoalChangeDate,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -390,6 +411,9 @@ class UserModel {
       lastStreakCheckDate: lastStreakCheckDate != null
           ? lastStreakCheckDate()
           : this.lastStreakCheckDate,
+      lastGoalChangeDate: lastGoalChangeDate != null // Новое поле
+          ? lastGoalChangeDate()
+          : this.lastGoalChangeDate,
     );
   }
 
@@ -397,6 +421,48 @@ class UserModel {
     if (doubleXpBuffExpiresAt == null) return false;
     // Бафф активен, если его время окончания еще не наступило
     return doubleXpBuffExpiresAt!.toDate().isAfter(DateTime.now());
+  }
+  bool get canChangeGoalToday {
+    if (lastGoalChangeDate == null) return true;
+    final now = DateTime.now();
+    final lastChange = lastGoalChangeDate!.toDate();
+    return !(now.year == lastChange.year &&
+        now.month == lastChange.month &&
+        now.day == lastChange.day);
+  }
+    UserModel withUpdatedGoal({
+    required int newGoal,
+    required int rewardItems,
+    required Timestamp changeDate,
+  }) {
+    // Создаем новый инвентарь с добавленными предметами
+    List<InventoryItem> newInventory = List.from(inventory);
+    
+    // Ищем предмет "reward_item" в инвентаре
+    int rewardItemIndex = newInventory.indexWhere((item) => item.id == 'reward_item');
+    
+    if (rewardItemIndex != -1) {
+      // Если предмет уже есть - увеличиваем количество
+      final existingItem = newInventory[rewardItemIndex];
+      newInventory[rewardItemIndex] = existingItem.copyWith(
+        quantity: existingItem.quantity + rewardItems,
+      );
+    } else {
+      // Если предмета нет - добавляем новый
+      newInventory.add(InventoryItem(
+        id: 'reward_item',
+        quantity: rewardItems,
+        name: 'Награда за цель',
+        description: 'Получено за установку новой цели XP',
+        icon: 'reward_icon',
+      ));
+    }
+
+    return copyWith(
+      dailyGoalXp: newGoal,
+      lastGoalChangeDate: () => changeDate,
+      inventory: newInventory,
+    );
   }
 
   /// **(ВАШ СТАРЫЙ МЕТОД, ПЕРЕИМЕНОВАН)**
